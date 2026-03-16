@@ -36,7 +36,8 @@ KonectySkills/
 ├── .gitignore
 ├── template/           # Template para novas skills (SKILL.md)
 ├── spec/               # Referência ao padrão Agent Skills (README.md)
-├── skills/             # Uma pasta por skill (cada uma com SKILL.md)
+├── skills/             # Skills do projeto Konecty (ex.: konecty-session)
+├── agents/skills/      # Skills externas/referência (ex.: skill-creator, de anthropics/skills)
 └── docs/               # Documentação do repo
     ├── README.md       # Índice da documentação
     ├── development.md  # Como contribuir e adicionar skills
@@ -46,7 +47,8 @@ KonectySkills/
 
 - **template/:** contém um único `SKILL.md` de referência com frontmatter e seções (Examples, Guidelines).
 - **spec/:** contém `README.md` com link e resumo do padrão (agentskills.io / anthropics/skills); sem duplicar a spec completa.
-- **skills/:** cada subpasta é uma skill (ex.: `skills/example-skill/SKILL.md`).
+- **skills/:** skills do projeto Konecty (cada subpasta é uma skill, ex.: `skills/konecty-session/SKILL.md`).
+- **agents/skills/:** skills de referência ou externas ao produto (ex.: skill-creator, copiado de anthropics/skills).
 - **docs/:** documentação do repositório (não das skills em si); ADRs em `docs/adr/`; changelog em `docs/changelog/`.
 
 ---

@@ -8,7 +8,8 @@ For the Agent Skills standard, see [agentskills.io](https://agentskills.io). Thi
 
 | Path | Purpose |
 |------|---------|
-| [./skills](./skills) | Konecty skills (each skill in its own folder with `SKILL.md`). Includes [skill-creator](./skills/skill-creator) (from [anthropics/skills](https://github.com/anthropics/skills)) and [konecty-session](./skills/konecty-session) (login and persist token for other skills). |
+| [./skills](./skills) | Konecty project skills (each skill in its own folder with `SKILL.md`). Example: [konecty-session](./skills/konecty-session) (OTP login and persist token for other skills). |
+| [./agents/skills](./agents/skills) | External/reference skills not part of the Konecty product set. Includes [skill-creator](./agents/skills/skill-creator) (from [anthropics/skills](https://github.com/anthropics/skills)) for creating and improving skills. |
 | [./template](./template) | Template for creating new skills |
 | [./spec](./spec) | Reference to the Agent Skills specification |
 | [./docs](./docs) | Project documentation and changelog |
