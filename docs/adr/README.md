@@ -49,6 +49,7 @@ docs/adr/
 | 0001 | [Formato Agent Skills](./0001-formato-agent-skills.md) | Aceito     | 2026-03-16 |
 | 0002 | [Estrutura do repositório](./0002-estrutura-repositorio.md) | Aceito     | 2026-03-16 |
 | 0003 | [Documentação e changelog obrigatórios](./0003-documentacao-changelog-obrigatorios.md) | Aceito     | 2026-03-16 |
+| 0004 | [Konecty Meta Skills](./0004-konecty-meta-skills.md) | Aceito     | 2026-03-16 |
 
 ---
 
