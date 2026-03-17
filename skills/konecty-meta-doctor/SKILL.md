@@ -20,45 +20,38 @@ python3 scripts/meta_doctor.py check
 python3 scripts/meta_doctor.py check --format json
 ```
 
+This command uses backend `POST /api/admin/meta/doctor` as the source of truth.
+
 ### 2. Check a specific document
 
 ```bash
 python3 scripts/meta_doctor.py check --document Contact
 ```
 
-### 3. Check queue consistency
+### 3. Check queue consistency (filtered from backend doctor report)
 
 ```bash
 python3 scripts/meta_doctor.py check-queues
 ```
 
-## Checks performed
+## Checks performed by backend doctor
 
-### Document integrity
+### Schema and integrity
 - Fields reference valid types
 - Lookup fields reference existing documents
 - InheritedFields reference valid fields on the target document
 - Required fields have labels
 
-### List integrity
-- Columns reference fields that exist in the parent document
-- View reference exists
-
-### View integrity
-- VisualSymlink fieldNames exist in the parent document
-- ReverseLookup targets exist
-
 ### Access integrity
 - Field overrides reference fields that exist in the parent document
-- ReadFilter/updateFilter conditions reference valid fields
 
 ### Queue consistency
 - `document.events` queue resources exist in `Namespace.QueueConfig.resources`
-- Queue names referenced in events exist in the resource's queue list
 
 ### Cross-references
 - All metas reference existing parent documents
-- Default access profiles exist
+- Lookup targets reference existing `document/composite` metas
+- Hook static checks (syntax, blocked APIs, comments, return requirements)
 
 ## Script reference
 

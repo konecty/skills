@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse, json, os, sys, urllib.error, urllib.request
-from typing import Any
+from typing import Any, Optional
 
 CREDENTIALS_DIR = os.path.expanduser("~/.konecty")
 ENV_FILE = os.path.join(CREDENTIALS_DIR, ".env")
@@ -16,8 +16,6 @@ SCAFFOLDS = {
     "scriptBeforeValidation": """var ret = {};
 var original = extraData.original;
 var req = extraData.request;
-
-// TODO: Add computed field logic here
 
 return ret;
 """,
@@ -34,21 +32,13 @@ return ret;
   }
 }
 """,
-    "validationScript": """// extraData contains results from validationData queries
-
-// TODO: Add validation logic here
-
+    "validationScript": """
 return { success: true };
 """,
-    "scriptAfterSave": """// data may be an array for batch operations
-// Models provides direct MongoDB collection access
-// extraData.original contains pre-save state
-
+    "scriptAfterSave": """
 if (data && data.length > 0) {
   var record = data[0];
   var original = extraData.original ? extraData.original[0] : null;
-
-  // TODO: Add post-save logic here
 }
 """,
 }
@@ -80,9 +70,36 @@ def _api(host, token, method, path, body=None):
     except urllib.error.HTTPError as e: print(f"HTTP {e.code}: {e.read().decode('utf-8', errors='replace')}", file=sys.stderr); sys.exit(1)
 
 
+def _build_hook_payload(hook_name: str, content: str) -> dict[str, Any]:
+    if hook_name == "validationData":
+        try:
+            value = json.loads(content)
+        except json.JSONDecodeError:
+            print("validationData must be valid JSON.", file=sys.stderr)
+            sys.exit(1)
+        return {"value": value}
+    return {"code": content}
+
+
+def _remote_validate_hook(host: str, token: str, hook_name: str, body: dict[str, Any], document: Optional[str] = None) -> tuple[bool, list[str]]:
+    payload: dict[str, Any] = {"hookName": hook_name}
+    if "code" in body:
+        payload["code"] = body["code"]
+    if "value" in body:
+        payload["value"] = body["value"]
+    if document:
+        payload["document"] = document
+
+    result = _api(host, token, "POST", "/hook/validate", payload)
+    if result.get("success") is not True:
+        return False, ["Hook validation request failed"]
+    errors = result.get("errors", [])
+    return bool(result.get("valid")), [str(e) for e in errors]
+
+
 def cmd_list(args):
     host, token = _creds(args)
-    result = _api(host, token, "GET", f"/{args.document}/document/{args.document}")
+    result = _api(host, token, "GET", f"/{args.document}/document")
     data = result.get("data", {})
     found = False
     for hook in VALID_HOOKS:
@@ -126,14 +143,13 @@ def cmd_upsert(args):
         print("Either --file or --code is required.", file=sys.stderr)
         sys.exit(1)
 
-    if args.hook_name == "validationData":
-        try:
-            body = {"value": json.loads(content)}
-        except json.JSONDecodeError:
-            print("validationData must be valid JSON.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        body = {"code": content}
+    body = _build_hook_payload(args.hook_name, content)
+    valid, errors = _remote_validate_hook(host, token, args.hook_name, body, document=args.document)
+    if not valid:
+        print("Hook rejected by backend validation:", file=sys.stderr)
+        for error in errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
 
     _api(host, token, "PUT", f"/{args.document}/hook/{args.hook_name}", body)
     print(f"Hook {args.hook_name} updated for {args.document}")
@@ -156,6 +172,7 @@ def cmd_scaffold(args):
 
 
 def cmd_validate(args):
+    host, token = _creds(args)
     if args.hook_name not in VALID_HOOKS:
         print(f"Invalid hook: {args.hook_name}. Valid: {', '.join(VALID_HOOKS)}", file=sys.stderr)
         sys.exit(1)
@@ -163,36 +180,15 @@ def cmd_validate(args):
     with open(args.file, "r", encoding="utf-8") as f:
         content = f.read()
 
-    errors: list[str] = []
+    body = _build_hook_payload(args.hook_name, content)
+    valid, errors = _remote_validate_hook(host, token, args.hook_name, body, document=args.document)
 
-    if args.hook_name == "validationData":
-        try:
-            json.loads(content)
-        except json.JSONDecodeError as e:
-            errors.append(f"Invalid JSON: {e}")
-    else:
-        if "require(" in content:
-            errors.append("require() is not available in hooks (VM sandbox)")
-        if "import " in content and "from " in content:
-            errors.append("ES module imports are not available in hooks (VM sandbox)")
-
-        if args.hook_name == "scriptBeforeValidation":
-            if "return " not in content:
-                errors.append("scriptBeforeValidation should return an object (missing return statement)")
-        elif args.hook_name == "validationScript":
-            if "success" not in content:
-                errors.append("validationScript should return { success: boolean } (missing 'success' in code)")
-        elif args.hook_name == "scriptAfterSave":
-            if "emails.push" in content:
-                errors.append("emails.push() is not available in scriptAfterSave (use scriptBeforeValidation)")
-
-    if errors:
+    if not valid:
         print("VALIDATION ERRORS:")
-        for e in errors:
-            print(f"  - {e}")
+        for error in errors:
+            print(f"  - {error}")
         sys.exit(1)
-    else:
-        print("OK: No issues found")
+    print("OK: No issues found")
 
 
 def main():
@@ -209,7 +205,7 @@ def main():
     p = sub.add_parser("delete"); p.add_argument("document"); p.add_argument("hook_name"); p.set_defaults(func=cmd_delete)
     p = sub.add_parser("scaffold"); p.add_argument("hook_name"); p.set_defaults(func=cmd_scaffold)
 
-    p = sub.add_parser("validate"); p.add_argument("hook_name"); p.add_argument("--file", required=True); p.set_defaults(func=cmd_validate)
+    p = sub.add_parser("validate"); p.add_argument("hook_name"); p.add_argument("--file", required=True); p.add_argument("--document"); p.set_defaults(func=cmd_validate)
 
     args = parser.parse_args(); args.func(args)
 

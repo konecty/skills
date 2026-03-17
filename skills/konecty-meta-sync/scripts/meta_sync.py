@@ -107,7 +107,7 @@ def _get_prod_meta(host: str, token: str, meta_id: str) -> dict | None:
         result = _api(host, token, "GET", f"/{doc}/{mtype}/{name}")
     else:
         doc = meta_id
-        result = _api(host, token, "GET", f"/{doc}/document/{doc}")
+        result = _api(host, token, "GET", f"/{doc}/document")
         if not result.get("success"):
             result = _api(host, token, "GET", f"/{doc}/namespace/{doc}")
     if result.get("success"):
@@ -138,9 +138,46 @@ def _compute_changes(repo_metas: dict, host: str, token: str) -> list[dict]:
     return changes
 
 
+def _validate_hook_payload(host: str, token: str, document: str, hook_name: str, value: Any) -> tuple[bool, list[str]]:
+    payload: dict[str, Any] = {"hookName": hook_name, "document": document}
+    if hook_name == "validationData":
+        payload["value"] = value
+    else:
+        payload["code"] = value
+    result = _api(host, token, "POST", "/hook/validate", payload)
+    if result.get("success") is not True:
+        return False, [str(result.get("error", "Hook validation request failed"))]
+    return bool(result.get("valid")), [str(e) for e in result.get("errors", [])]
+
+
+def _prevalidate_document_hooks(host: str, token: str, meta: dict[str, Any]) -> list[str]:
+    if meta.get("type") not in ("document", "composite"):
+        return []
+    document = str(meta.get("_id", ""))
+    if not document:
+        return ["Document/composite meta must include _id for hook validation"]
+
+    errors: list[str] = []
+    for hook_name in HOOK_FIELDS:
+        if hook_name not in meta:
+            continue
+        valid, hook_errors = _validate_hook_payload(host, token, document, hook_name, meta[hook_name])
+        if not valid:
+            for hook_error in hook_errors:
+                errors.append(f"{hook_name}: {hook_error}")
+    return errors
+
+
 def _apply_change(host: str, token: str, change: dict) -> bool:
     meta_id = change["meta_id"]
     meta = change["repo"]
+    hook_errors = _prevalidate_document_hooks(host, token, meta)
+    if hook_errors:
+        print(f"  [HOOK-VALIDATION-FAIL] {meta_id}")
+        for hook_error in hook_errors:
+            print(f"    - {hook_error}")
+        return False
+
     parts = meta_id.split(":")
     if len(parts) >= 3:
         doc, mtype, name = parts[0], parts[1], ":".join(parts[2:])
@@ -148,7 +185,7 @@ def _apply_change(host: str, token: str, change: dict) -> bool:
     elif meta.get("type") == "namespace":
         result = _api(host, token, "PUT", "/Namespace/namespace/Namespace", meta)
     else:
-        result = _api(host, token, "PUT", f"/{meta_id}/document/{meta_id}", meta)
+        result = _api(host, token, "PUT", f"/{meta_id}/document", meta)
     return result.get("success", False)
 
 
