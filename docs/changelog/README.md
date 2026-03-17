@@ -15,3 +15,4 @@ All notable changes to KonectySkills are documented here.
 | [2026-03-16](./2026-03-16_konecty-create-skill.md) | konecty-create skill: create records with workflow for field discovery, lookup resolution, and picklist validation |
 | [2026-03-16](./2026-03-16_konecty-update-skill.md) | konecty-update skill: update records enforcing fetch-first workflow to obtain _updatedAt before every PUT |
 | [2026-03-16](./2026-03-16_konecty-delete-skill.md) | konecty-delete skill: delete one record at a time with preview + --confirm guardrails |
+| [2026-03-16](./2026-03-16_konecty-meta-skills.md) | 10 konecty-meta skills: read, document, list, view, access, pivot, hook, namespace, doctor, sync |
