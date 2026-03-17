@@ -60,6 +60,8 @@ python3 scripts/meta_sync.py apply --from repo --to prod --repo /path/to/metas -
 
 Selective: applies only the specified metas.
 
+Before each document/composite write, hooks are prevalidated using backend `POST /api/admin/meta/hook/validate`. Invalid hooks are skipped and reported.
+
 ### 3. Diff (single item comparison)
 
 ```bash
@@ -82,6 +84,7 @@ python3 scripts/meta_sync.py pull --repo /path/to/metas --all
 ## Key concepts
 
 - Hooks (.js/.json files) in `hook/` subdirectory are injected into the document meta
+- Hook payloads are prevalidated against backend rules before apply
 - Namespace is synced as `MetaObjects/Namespace/document.json`
 - The `--only` flag allows selective application from a plan
 - The `--auto-approve` flag skips interactive confirmation (for CI/CD)

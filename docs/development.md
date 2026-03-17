@@ -24,3 +24,12 @@ To use KonectySkills from this repo in Cursor:
 ## Changelog
 
 Every change that affects users or other repos should have an entry in `docs/changelog/YYYY-MM-DD_slug.md` and be listed in `docs/changelog/README.md`.
+
+## Skill-creator workflow
+
+When creating or improving skills, follow the standardized workflow implemented by the `skill-creator` reference agent at:
+
+- `/Users/silveira/.agents/skills/skill-creator` (installed Cursor agent path)
+- `KonectySkills/agents/skills/skill-creator` (repo reference folder, if available in your environment)
+
+This workflow covers: Draft -> Test (baseline/without-skill when applicable) -> Review -> Iterate -> Optimize -> Package.

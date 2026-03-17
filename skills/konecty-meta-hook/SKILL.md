@@ -63,11 +63,14 @@ python3 scripts/meta_hook.py scaffold validationScript
 python3 scripts/meta_hook.py scaffold scriptAfterSave
 ```
 
-### 7. Validate a hook (basic checks)
+### 7. Validate a hook (backend dry-run)
 
 ```bash
 python3 scripts/meta_hook.py validate scriptBeforeValidation --file hook.js
+python3 scripts/meta_hook.py validate scriptBeforeValidation --file hook.js --document Contact
 ```
+
+This command calls `POST /api/admin/meta/hook/validate` and uses the same backend validations used by apply/doctor.
 
 ## Code generation guidelines
 
@@ -79,9 +82,11 @@ When generating hook code, follow these rules:
 4. **validationData**: Pure JSON, use `$this.<field>` for dynamic filters
 5. **emails.push()** only works in `scriptBeforeValidation`
 6. No `require()` or `import` — hooks run in a VM sandbox
-7. Only `scriptAfterSave` supports `await`
-8. Use try/catch for complex logic to prevent hook failures from blocking saves
-9. Do NOT post to RabbitMQ queues from hooks — use `document.events` instead
+7. No inline comments in JS hook source (`//` or `/* */`)
+8. `scriptBeforeValidation` and `validationScript` must include explicit `return`
+9. Only `scriptAfterSave` supports `await`
+10. Use try/catch for complex logic to prevent hook failures from blocking saves
+11. Do NOT post to RabbitMQ queues from hooks — use `document.events` instead
 
 ## References
 
