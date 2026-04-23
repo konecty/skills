@@ -4,6 +4,7 @@ All notable changes to KonectySkills are documented here.
 
 | Date | Summary |
 |------|---------|
+| [2026-04-23](./2026-04-23_konecty-meta-remove-skill.md) | konecty-meta-remove skill: interactive full-module metadata deletion via `/api/admin/meta` |
 | [2026-03-16](./2026-03-16_repo-initialization.md) | Repository initialization and base structure |
 | [2026-03-16](./2026-03-16_adr-initialization.md) | ADR directory, template, and initial ADRs (0001–0003) |
 | [2026-03-16](./2026-03-16_skill-creator-copy.md) | Copy of skill-creator from anthropics/skills for future skill creation |

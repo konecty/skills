@@ -35,7 +35,7 @@ python3 scripts/meta_view.py upsert Activity Default --file view.json
 
 - `_id` pattern: `{Document}:view:{Name}`
 - `visuals` is a recursive tree of:
-  - `visualGroup`: container with `style.title`, `style.icon`, nested `visuals[]`
+  - `visualGroup`: container with required `label` plus optional `style.title`/`style.icon`, nested `visuals[]`
   - `visualSymlink`: references a field; has `fieldName` and optional `style` (readOnlyVersion, renderAs, etc.)
   - `reverseLookup`: shows related records; has `field`, `document`, `list`
 - `parent` enables view inheritance between namespaces
