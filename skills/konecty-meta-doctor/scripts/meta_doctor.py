@@ -31,7 +31,10 @@ def _creds(args): host, token = args.host or "", args.token or ""; h, t = _load_
 def _api(host, token, method, path, body=None):
     url = f"{host}{API_PREFIX}{path}"
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={"Authorization": token, "Content-Type": "application/json"})
+    headers = {"Authorization": token}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req) as r: return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:

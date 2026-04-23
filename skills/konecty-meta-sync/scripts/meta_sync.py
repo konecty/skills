@@ -5,7 +5,7 @@ Terraform-style plan/apply workflow. Stdlib only.
 """
 from __future__ import annotations
 
-import argparse, json, os, sys, urllib.error, urllib.request
+import argparse, json, os, sys, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -18,31 +18,51 @@ HOOK_FIELDS = {"scriptBeforeValidation": ".js", "validationScript": ".js", "scri
 META_SUBDIRS = {"list", "view", "access", "pivot", "card"}
 
 
+def _unquote_env(val: str) -> str:
+    """Strip whitespace and surrounding quotes from .env values (e.g. TOKEN=\"abc\")."""
+    val = val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+        return val[1:-1]
+    return val
+
+
 def _load_credentials() -> tuple[str, str]:
-    url, token = os.environ.get("KONECTY_URL", ""), os.environ.get("KONECTY_TOKEN", "")
+    url, token = _unquote_env(os.environ.get("KONECTY_URL", "")), _unquote_env(os.environ.get("KONECTY_TOKEN", ""))
     if os.path.isfile(ENV_FILE):
         with open(ENV_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("KONECTY_URL=") and not url: url = line.split("=", 1)[1].strip()
-                elif line.startswith("KONECTY_TOKEN=") and not token: token = line.split("=", 1)[1].strip()
+                if line.startswith("KONECTY_URL=") and not url:
+                    url = _unquote_env(line.split("=", 1)[1])
+                elif line.startswith("KONECTY_TOKEN=") and not token:
+                    token = _unquote_env(line.split("=", 1)[1])
     if (not url or not token) and os.path.isfile(CREDENTIALS_FILE):
         import configparser; config = configparser.ConfigParser(); config.read(CREDENTIALS_FILE)
-        if "default" in config: url = url or config["default"].get("host", ""); token = token or config["default"].get("authid", "")
+        if "default" in config:
+            url = url or _unquote_env(config["default"].get("host", ""))
+            token = token or _unquote_env(config["default"].get("authid", ""))
     return url.rstrip("/"), token
 
 
 def _creds(args):
-    host, token = args.host or "", args.token or ""
+    host, token = _unquote_env(args.host or ""), _unquote_env(args.token or "")
     h, t = _load_credentials()
     host = host or h; token = token or t
     return host, token
 
 
+def _quote_path_seg(segment: str) -> str:
+    """Percent-encode a single path segment (non-ASCII names break http.client on Python 3.14+)."""
+    return urllib.parse.quote(str(segment), safe="")
+
+
 def _api(host, token, method, path, body=None):
     url = f"{host}{API_PREFIX}{path}"
-    data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(url, data=data, method=method, headers={"Authorization": token, "Content-Type": "application/json"})
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Authorization": token}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req) as r: return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
@@ -104,12 +124,13 @@ def _get_prod_meta(host: str, token: str, meta_id: str) -> dict | None:
     parts = meta_id.split(":")
     if len(parts) >= 3:
         doc, mtype, name = parts[0], parts[1], ":".join(parts[2:])
-        result = _api(host, token, "GET", f"/{doc}/{mtype}/{name}")
+        result = _api(host, token, "GET", f"/{_quote_path_seg(doc)}/{_quote_path_seg(mtype)}/{_quote_path_seg(name)}")
     else:
         doc = meta_id
-        result = _api(host, token, "GET", f"/{doc}/document")
+        result = _api(host, token, "GET", f"/{_quote_path_seg(doc)}/document")
         if not result.get("success"):
-            result = _api(host, token, "GET", f"/{doc}/namespace/{doc}")
+            qd = _quote_path_seg(doc)
+            result = _api(host, token, "GET", f"/{qd}/namespace/{qd}")
     if result.get("success"):
         return result.get("data")
     return None
@@ -168,24 +189,25 @@ def _prevalidate_document_hooks(host: str, token: str, meta: dict[str, Any]) -> 
     return errors
 
 
-def _apply_change(host: str, token: str, change: dict) -> bool:
+def _apply_change(host: str, token: str, change: dict, *, skip_hook_validation: bool = False) -> bool:
     meta_id = change["meta_id"]
     meta = change["repo"]
-    hook_errors = _prevalidate_document_hooks(host, token, meta)
-    if hook_errors:
-        print(f"  [HOOK-VALIDATION-FAIL] {meta_id}")
-        for hook_error in hook_errors:
-            print(f"    - {hook_error}")
-        return False
+    if not skip_hook_validation:
+        hook_errors = _prevalidate_document_hooks(host, token, meta)
+        if hook_errors:
+            print(f"  [HOOK-VALIDATION-FAIL] {meta_id}")
+            for hook_error in hook_errors:
+                print(f"    - {hook_error}")
+            return False
 
     parts = meta_id.split(":")
     if len(parts) >= 3:
         doc, mtype, name = parts[0], parts[1], ":".join(parts[2:])
-        result = _api(host, token, "PUT", f"/{doc}/{mtype}/{name}", meta)
+        result = _api(host, token, "PUT", f"/{_quote_path_seg(doc)}/{_quote_path_seg(mtype)}/{_quote_path_seg(name)}", meta)
     elif meta.get("type") == "namespace":
         result = _api(host, token, "PUT", "/Namespace/namespace/Namespace", meta)
     else:
-        result = _api(host, token, "PUT", f"/{meta_id}/document", meta)
+        result = _api(host, token, "PUT", f"/{_quote_path_seg(meta_id)}/document", meta)
     return result.get("success", False)
 
 
@@ -248,7 +270,7 @@ def cmd_apply(args):
 
     applied = 0
     for c in changes:
-        ok = _apply_change(host, token, c)
+        ok = _apply_change(host, token, c, skip_hook_validation=args.skip_hook_validation)
         status = "OK" if ok else "FAIL"
         print(f"  [{status}] {c['meta_id']}")
         if ok:
@@ -334,12 +356,13 @@ def cmd_pull(args):
                         f.write(value)
                 print(f"  Pulled {doc_name}/hook/{hook_name}{ext}")
 
-        metas_result = _api(host, token, "GET", f"/{doc_name}")
+        qdoc = _quote_path_seg(doc_name)
+        metas_result = _api(host, token, "GET", f"/{qdoc}")
         for meta in metas_result.get("data", []):
             mtype = meta.get("type", "")
             mname = meta.get("name", "Default")
             if mtype in META_SUBDIRS:
-                full = _api(host, token, "GET", f"/{doc_name}/{mtype}/{mname}")
+                full = _api(host, token, "GET", f"/{qdoc}/{_quote_path_seg(mtype)}/{_quote_path_seg(mname)}")
                 if full.get("success"):
                     sub_dir = doc_dir / mtype
                     sub_dir.mkdir(exist_ok=True)
@@ -365,6 +388,11 @@ def main():
     p.add_argument("--repo", required=True)
     p.add_argument("--auto-approve", action="store_true")
     p.add_argument("--only", nargs="*")
+    p.add_argument(
+        "--skip-hook-validation",
+        action="store_true",
+        help="Skip POST /hook/validate (use when Konecty has no validator route, e.g. some local builds).",
+    )
     p.set_defaults(func=cmd_apply)
 
     p = sub.add_parser("diff")

@@ -55,10 +55,10 @@ def _get_creds(args: argparse.Namespace) -> tuple[str, str]:
 def _api_request(host: str, token: str, method: str, path: str, body: Any = None) -> dict:
     url = f"{host}{API_PREFIX}{path}"
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        "Authorization": token,
-        "Content-Type": "application/json",
-    })
+    headers = {"Authorization": token}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read().decode("utf-8"))

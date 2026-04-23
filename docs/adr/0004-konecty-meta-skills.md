@@ -16,7 +16,7 @@ Agentes de IA precisam de orientações claras, exemplos reais e scripts utilit�
 
 ## Decisão
 
-Criar **10 skills** separadas, cada uma com escopo bem definido:
+Criar **11 skills** separadas, cada uma com escopo bem definido:
 
 | Skill | Escopo |
 |-------|--------|
@@ -30,6 +30,7 @@ Criar **10 skills** separadas, cada uma com escopo bem definido:
 | `konecty-meta-namespace` | Configuração global do tenant |
 | `konecty-meta-doctor` | Validação de integridade dos metas |
 | `konecty-meta-sync` | Sincronização repo ↔ database (plan/apply) |
+| `konecty-meta-remove` | Remoção interativa de módulo completo de metadata (filhos → hooks → document/composite) |
 
 Cada skill contém:
 - `SKILL.md` com frontmatter, pré-requisitos e workflow
@@ -53,7 +54,7 @@ Todas dependem dos endpoints admin-only `/api/admin/meta/*` implementados no Kon
 - `meta-doctor` e `meta-sync` reduzem erros operacionais
 
 ### Negativas
-- 10 skills para manter e versionar
+- 11 skills para manter e versionar
 - Dependência forte nos endpoints `/api/admin/meta/*` — sem eles, nenhuma skill de escrita funciona
 
 ## Plano de implementação
