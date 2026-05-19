@@ -8,8 +8,8 @@ For the Agent Skills standard, see [agentskills.io](https://agentskills.io). Thi
 
 | Path | Purpose |
 |------|---------|
-| [./skills](./skills) | Konecty project skills (each skill in its own folder with `SKILL.md`). Example: [konecty-session](./skills/konecty-session) (OTP login and persist token for other skills). |
-| [./agents/skills](./agents/skills) | External/reference skills not part of the Konecty product set. Includes [skill-creator](./agents/skills/skill-creator) (from [anthropics/skills](https://github.com/anthropics/skills)) for creating and improving skills. |
+| [./skills](./skills) | Konecty platform skills (each skill in its own folder with `SKILL.md`). |
+| [./.agents/skills](./.agents/skills) | External skills installed via CLI (managed by `skills-lock.json`). |
 | [./template](./template) | Template for creating new skills |
 | [./spec](./spec) | Reference to the Agent Skills specification |
 | [./docs](./docs) | Project documentation and changelog |
@@ -47,6 +47,24 @@ The rest of the file is Markdown: instructions, examples, and guidelines.
 ## Using skills in Cursor
 
 Skills in this repo can be installed under `.cursor/skills/` (or your Cursor skills path). Each skill is a folder containing `SKILL.md`; the agent uses the `description` to decide when to load the skill.
+
+## Credentials
+
+Copy `.env.example` to `.env` and fill in the values:
+
+```bash
+cp .env.example .env
+```
+
+| Credential | When needed | How to obtain |
+|------------|-------------|---------------|
+| `KONECTY_URL` + `KONECTY_TOKEN` | Testing skills locally against a Konecty instance | Run the `konecty-session` skill (OTP login) |
+| `SNYK_TOKEN` | Security audit before publishing (`uvx snyk-agent-scan@latest --skills`) | [app.snyk.io/account](https://app.snyk.io/account) |
+| GitHub auth | Publishing via `gh skill publish` | `gh auth login` (one-time, interactive) |
+| clawhub auth | Publishing to OpenClaw | `clawhub login` (one-time, interactive) |
+| Socket auth | Supply chain scan via `socket ci` | `socket login` (one-time, interactive) |
+
+> The Gen Agent Trust Hub audit is web-only — paste the skill URL at [ai.gendigital.com/agent-trust-hub](https://ai.gendigital.com/agent-trust-hub).
 
 ## Documentation
 
