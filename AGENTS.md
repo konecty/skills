@@ -2,12 +2,55 @@
 
 Guidance for AI coding agents working in this repository.
 
+## Spec-Driven Development (SDD) — mandatory
+
+This repo follows **Spec-Driven Development** via the [`tlc-spec-driven`](.agents/skills/tlc-spec-driven/SKILL.md) skill. Every non-trivial change must go through the SDD pipeline before any code or file is created.
+
+### Pipeline
+
+```
+SPECIFY → DESIGN → TASKS → EXECUTE
+required   opt*    opt*    required
+* auto-skipped when scope doesn't need it
+```
+
+| Scope | Rule |
+|-------|------|
+| **Small** — ≤3 files, one-sentence scope | Quick Mode: describe → implement → verify → commit |
+| **Medium** — clear feature, <10 tasks | Specify (brief) → Execute |
+| **Large / Complex** | Full Specify → Design → Tasks → Execute |
+
+### Specs directory
+
+All specs live in `.specs/` (never inside `skills/` or `docs/`):
+
+```
+.specs/
+├── project/
+│   ├── PROJECT.md      # vision & goals for this repo
+│   ├── ROADMAP.md      # planned skills and milestones
+│   └── STATE.md        # decisions, blockers, deferred ideas
+├── codebase/           # brownfield analysis (created once, kept updated)
+└── features/
+    └── <feature>/
+        ├── spec.md     # requirements with traceable IDs
+        ├── design.md   # architecture (Large/Complex only)
+        └── tasks.md    # atomic tasks with verification (Large/Complex only)
+```
+
+### Rules
+
+- **Never implement without a spec** for Medium/Large/Complex scope — write `spec.md` first.
+- Quick Mode is the only exception: bug fixes, config tweaks, single-file changes.
+- Each task in `tasks.md` maps to **one atomic commit**; commit message must reference the task ID.
+- If execution reveals >5 steps that weren't in the task plan, stop and update `tasks.md` before continuing.
+- Keep `STATE.md` updated with every session: decisions made, blockers found, deferred ideas.
+
 ## Workflow
 
-- Enter plan mode for any non-trivial task (adding a skill, changing conventions, refactoring scripts).
-- When creating or improving a skill, follow the **skill-creator** workflow: Draft → Test → Review → Iterate → Optimize → Package. The full workflow is at `agents/skills/skill-creator/SKILL.md`.
+- When creating or improving a skill, follow the **skill-creator** workflow: Draft → Test → Review → Iterate → Optimize → Package. The full workflow is at `.agents/skills/skill-creator/SKILL.md`.
 - Never mark a task complete without verifying the skill works end-to-end (credentials present, script runs, output is correct).
-- If something is ambiguous (module name, field name, API shape), run `konecty-modules` or `konecty-meta-read` to discover before guessing.
+- If something is ambiguous (module name, field name, API shape), use `konecty-modules` or `konecty-meta-read` to discover before guessing.
 
 ## Repository
 
@@ -15,7 +58,8 @@ Guidance for AI coding agents working in this repository.
 
 ```
 skills/              # Konecty platform skills (one folder per skill)
-agents/skills/       # External/reference skills (skill-creator from anthropics/skills)
+.agents/skills/      # External skills installed via CLI (tracked in skills-lock.json)
+.specs/              # SDD specs: project, codebase analysis, feature specs
 template/            # SKILL.md template for new skills
 spec/                # Agent Skills standard reference
 docs/adr/            # Architecture Decision Records
