@@ -1,7 +1,27 @@
+# OS
 .DS_Store
+
+# Python
 __pycache__/
+*.py[cod]
+.venv/
+.python-version
+
+# Editors
 .idea/
 .vscode/
+
+# Logs & env
 *.log
-node_modules/
 .env
+.env.*
+
+# Node
+node_modules/
+
+# Security scan caches
+.snyk
+.socket/
+
+# Konecty local credentials (never commit)
+skills/konecty-session/.env
