@@ -1,0 +1,72 @@
+name: Check shared files
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check-shared-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check shared files are identical between konecty-data and konecty-meta
+        run: |
+          MANIFEST="skills/konecty-data/shared-files.txt"
+          DATA_DIR="skills/konecty-data"
+          META_DIR="skills/konecty-meta"
+
+          # Skip check if konecty-meta does not exist (only one skill present)
+          if [ ! -d "$META_DIR" ]; then
+            echo "konecty-meta directory not found — skipping shared-files check."
+            exit 0
+          fi
+
+          if [ ! -f "$MANIFEST" ]; then
+            echo "shared-files.txt not found at $MANIFEST — skipping check."
+            exit 0
+          fi
+
+          failed=0
+
+          while IFS= read -r rel_path || [ -n "$rel_path" ]; do
+            [ -z "$rel_path" ] && continue
+
+            data_file="$DATA_DIR/$rel_path"
+            meta_file="$META_DIR/$rel_path"
+
+            if [ ! -f "$data_file" ]; then
+              echo "FAIL: missing in konecty-data: $rel_path"
+              failed=1
+              continue
+            fi
+
+            if [ ! -f "$meta_file" ]; then
+              echo "FAIL: missing in konecty-meta: $rel_path"
+              failed=1
+              continue
+            fi
+
+            hash_data=$(sha256sum "$data_file" | awk '{print $1}')
+            hash_meta=$(sha256sum "$meta_file" | awk '{print $1}')
+
+            if [ "$hash_data" != "$hash_meta" ]; then
+              echo "FAIL: $rel_path diverged between konecty-data and konecty-meta"
+              echo "  konecty-data SHA256: $hash_data"
+              echo "  konecty-meta SHA256: $hash_meta"
+              failed=1
+            else
+              echo "OK:   $rel_path"
+            fi
+
+          done < "$MANIFEST"
+
+          if [ "$failed" -ne 0 ]; then
+            echo ""
+            echo "One or more shared files differ between konecty-data and konecty-meta."
+            echo "They must be byte-identical. Fix the divergence and re-push."
+            exit 1
+          fi
+
+          echo ""
+          echo "All shared files are identical."
