@@ -476,11 +476,11 @@ references/field-discovery.md
 - Skill: NONE
 
 **Done when**:
-- [ ] `ls skills/` shows exactly `konecty-data/` and `konecty-meta/` (and nothing else)
-- [ ] `CLAUDE.md` Skills map section references `konecty-data` and `konecty-meta`
-- [ ] `CLAUDE.md` API surface table updated to match the 2-skill architecture
-- [ ] All 18 old directories removed (no dangling references in CLAUDE.md)
-- [ ] `make setup && .githooks/pre-commit` exits 0 on the clean state
+- [x] `ls skills/` shows exactly `konecty-data/` and `konecty-meta/` (and nothing else)
+- [x] `CLAUDE.md` Skills map section references `konecty-data` and `konecty-meta`
+- [x] `CLAUDE.md` API surface table updated to match the 2-skill architecture
+- [x] All 18 old directories removed (no dangling references in CLAUDE.md)
+- [x] `make setup && .githooks/pre-commit` exits 0 on the clean state
 
 **Tests**: none
 **Gate**: `ls skills/` + manual pre-commit run
