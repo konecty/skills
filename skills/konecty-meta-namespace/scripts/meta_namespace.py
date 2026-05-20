@@ -2,7 +2,7 @@
 """Konecty Meta Namespace: manage global Namespace configuration. Stdlib only."""
 from __future__ import annotations
 
-import argparse, json, os, sys, urllib.error, urllib.request
+import argparse, json, os, sys, urllib.error, urllib.parse, urllib.request
 from typing import Any
 
 CREDENTIALS_DIR = os.path.expanduser("~/.konecty")
@@ -40,12 +40,55 @@ def _api(host, token, method, path, body=None):
     except urllib.error.HTTPError as e: print(f"HTTP {e.code}: {e.read().decode('utf-8', errors='replace')}", file=sys.stderr); sys.exit(1)
 
 
+def _api_optional(host, token, method, path, body=None):
+    """Like _api but returns None on 404 instead of sys.exit."""
+    url = f"{host}{API_PREFIX}{path}"
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Authorization": token}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as r: return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        print(f"HTTP {e.code}: {e.read().decode('utf-8', errors='replace')}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _get_namespace(host: str, token: str) -> dict:
-    result = _api(host, token, "GET", "/Namespace/namespace/Namespace")
-    return result.get("data", {})
+    # Step 1: fetch the namespace summary to discover the real name.
+    summary_result = _api(host, token, "GET", "/Namespace")
+    items = summary_result if isinstance(summary_result, list) else summary_result.get("data", [])
+    dynamic_name = items[0].get("name", "") if items else ""
+
+    # Step 2: try the dynamic name first (URL-encoded), then the legacy compound path.
+    encoded_name = urllib.parse.quote(dynamic_name, safe="") if dynamic_name else ""
+    for candidate in ([f"/Namespace/namespace/{encoded_name}"] if encoded_name else []) + ["/Namespace/namespace/Namespace"]:
+        result = _api_optional(host, token, "GET", candidate)
+        if result is not None:
+            return result.get("data", {})
+
+    # Step 3: both compound paths failed — return the summary data so callers
+    # still get something useful rather than crashing.
+    return items[0] if items else {}
 
 
 def _put_namespace(host: str, token: str, doc: dict) -> dict:
+    # Step 1: fetch summary to discover the real name.
+    summary_result = _api(host, token, "GET", "/Namespace")
+    items = summary_result if isinstance(summary_result, list) else summary_result.get("data", [])
+    dynamic_name = items[0].get("name", "") if items else ""
+
+    # Step 2: try dynamic name first (URL-encoded), then legacy path.
+    encoded_name = urllib.parse.quote(dynamic_name, safe="") if dynamic_name else ""
+    for candidate in ([f"/Namespace/namespace/{encoded_name}"] if encoded_name else []) + ["/Namespace/namespace/Namespace"]:
+        result = _api_optional(host, token, "PUT", candidate, doc)
+        if result is not None:
+            return result
+
+    # Step 3: fall back to _api with legacy path so any non-404 error is surfaced.
     return _api(host, token, "PUT", "/Namespace/namespace/Namespace", doc)
 
 
