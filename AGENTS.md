@@ -50,7 +50,7 @@ All specs live in `.specs/` (never inside `skills/` or `docs/`):
 
 - When creating or improving a skill, follow the **skill-creator** workflow: Draft → Test → Review → Iterate → Optimize → Package. The full workflow is at `.agents/skills/skill-creator/SKILL.md`.
 - Never mark a task complete without verifying the skill works end-to-end (credentials present, script runs, output is correct).
-- If something is ambiguous (module name, field name, API shape), use `konecty-modules` or `konecty-meta-read` to discover before guessing.
+- If something is ambiguous (module name, field name, API shape), use `konecty-data` (modules subcommand) or `konecty-meta` (read subcommand) to discover before guessing.
 
 ## Repository
 
@@ -142,43 +142,45 @@ KONECTY_URL=https://<host>
 KONECTY_TOKEN=<authId>
 ```
 
-`konecty-session` is the auth foundation — it performs the OTP two-phase flow (request-otp → verify-otp) and writes these files. Every other skill reads them at startup and fails fast with a clear message when they are missing or the API returns 401.
+`konecty-data` (session subcommand) is the auth foundation — it performs the OTP two-phase flow (request-otp → verify-otp) and writes these files. `konecty-meta` reads them at startup and fails fast with a clear message when they are missing or the API returns 401.
 
 ### API surface
 
 | Prefix | Who uses it | Auth level |
 |--------|-------------|------------|
-| `/rest/data/:document/` | konecty-find, create, update, delete | user token |
-| `/rest/query/json`, `/rest/query/sql` | konecty-find (cross-module) | user token |
-| `/rest/file/` | konecty-upload | user token |
-| `/rest/query/explorer/modules` | konecty-modules | user token |
-| `/api/admin/meta/*` | all `konecty-meta-*` skills | admin token |
+| `/rest/data/:document/` | konecty-data (find, create, update, delete) | user token |
+| `/rest/query/json`, `/rest/query/sql` | konecty-data (cross-module query, SQL) | user token |
+| `/rest/file/` | konecty-data (upload) | user token |
+| `/rest/query/explorer/modules` | konecty-data (modules) | user token |
+| `/api/admin/meta/*` | konecty-meta | admin token |
 
 ### Skills map
 
 ```
-konecty-session      ← prerequisite for all others
-konecty-modules      ← discover document/field names
-konecty-find         ← search, filter, paginate, SQL
-konecty-create       ← create records
-konecty-update       ← update records (fetch-first: requires _updatedAt)
-konecty-delete       ← delete one record at a time with confirmation guardrail
-konecty-upload       ← attach/list/delete files on record fields
+konecty-data   ← all data operations:
+                   session (OTP auth, writes ~/.konecty/.env)
+                   modules (discover documents/fields)
+                   find    (search, filter, paginate, SQL, cross-module)
+                   create  (create records)
+                   update  (update records — fetch-first: requires _updatedAt)
+                   delete  (delete one record at a time with confirmation guardrail)
+                   upload  (attach/list/delete files on record fields)
 
-konecty-meta-read    ← read any MetaObject (all types)
-konecty-meta-document ← CRUD document schema and fields
-konecty-meta-list    ← CRUD list metas (columns, filters, sorters)
-konecty-meta-view    ← CRUD view/FormSchema metas
-konecty-meta-access  ← CRUD access profiles and permission filters
-konecty-meta-pivot   ← CRUD pivot metas
-konecty-meta-hook    ← generate and manage hook code (4 hook types)
-konecty-meta-namespace ← tenant global config
-konecty-meta-doctor  ← validate metadata integrity (uses backend doctor endpoint)
-konecty-meta-sync    ← sync repo ↔ database (plan/apply)
-konecty-meta-remove  ← interactive full-module deletion (children → hooks → document)
+konecty-meta   ← all metadata operations:
+                   read      (read any MetaObject — all types)
+                   document  (CRUD document schema and fields)
+                   list      (CRUD list metas: columns, filters, sorters)
+                   view      (CRUD view/FormSchema metas)
+                   access    (CRUD access profiles and permission filters)
+                   pivot     (CRUD pivot metas)
+                   hook      (generate and manage hook code — 4 hook types)
+                   namespace (tenant global config)
+                   doctor    (validate metadata integrity via backend endpoint)
+                   sync      (sync repo ↔ database: plan/apply)
+                   remove    (interactive full-module deletion: children → hooks → document)
 ```
 
-All meta is stored in a single `MetaObjects` collection, discriminated by a `type` field. The meta skills are intentionally split (not monolithic) to avoid token overload when only one concern is active.
+All meta is stored in a single `MetaObjects` collection, discriminated by a `type` field.
 
 ## Skill format and quality standards
 
