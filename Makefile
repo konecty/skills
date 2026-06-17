@@ -1,9 +1,15 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint validate shared-check installer-test test test-cov audit check clean
+.PHONY: help setup lint validate shared-check installer-test test test-cov audit check clean \
+        publish-gh publish-clawhub publish-hermes publish
 
-DATA  := skills/konecty-data
-META  := skills/konecty-meta
-SKILLS := $(DATA) $(META)
+DATA       := skills/konecty-data
+META       := skills/konecty-meta
+DEV        := skills/konecty-dev
+SKILLS     := $(DATA) $(META)
+ALL_SKILLS := $(DATA) $(META) $(DEV)
+
+VERSION   ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "1.0.0")
+CHANGELOG ?= Release $(VERSION)
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | \
@@ -20,9 +26,9 @@ lint: ## Byte-compile every skill script (stdlib syntax check)
 shared-check: ## Run the gated shared-files divergence guard
 	@.githooks/pre-commit
 
-validate: ## Validate both SKILL.md against the agentskills.io spec (needs gh skill)
+validate: ## Validate all SKILL.md against the agentskills.io spec (needs gh skill)
 	@command -v gh >/dev/null 2>&1 || { echo "gh not installed — skipping"; exit 0; }
-	@for s in $(SKILLS); do echo "== $$s =="; (cd $$s && gh skill publish --dry-run) || exit 1; done
+	@for s in $(ALL_SKILLS); do echo "== $$s =="; (cd $$s && gh skill publish --dry-run) || exit 1; done
 
 installer-test: ## Run the konecty-skills installer unit tests (stdlib only, offline)
 	@(cd installer && PYTHONPATH=src python3 -m unittest discover -s tests -t .)
@@ -81,6 +87,33 @@ e2e-sec: ## Run only the security suite
 
 e2e-infer: ## Run only the inference/intent-router suite
 	@$(E2E_PYTEST) pytest tests/e2e/test_inference.py -v
+
+## ─── Publishing ─────────────────────────────────────────────────────────────
+## Usage: make publish-clawhub VERSION=1.2.0 CHANGELOG="Fix auth edge case"
+##        make publish          VERSION=1.2.0 CHANGELOG="Fix auth edge case"
+
+publish-gh: validate ## Publish all skills to GitHub via gh skill (needs: gh auth login)
+	@command -v gh >/dev/null 2>&1 || { echo "ERROR: gh not installed. Run: gh auth login"; exit 1; }
+	@for s in $(ALL_SKILLS); do echo "== $$s =="; (cd $$s && gh skill publish --fix) || exit 1; done
+
+publish-clawhub: validate ## Publish all skills to OpenClaw/clawhub (needs: npm i -g clawhub && clawhub login)
+	@command -v clawhub >/dev/null 2>&1 || { echo "ERROR: run 'npm i -g clawhub' then 'clawhub login'"; exit 1; }
+	@for s in $(ALL_SKILLS); do \
+		slug=$$(basename $$s); \
+		echo "== $$slug v$(VERSION) =="; \
+		clawhub skill publish ./$$s --slug $$slug --version $(VERSION) --changelog "$(CHANGELOG)" || exit 1; \
+	done
+
+publish-hermes: ## Publish all skills to Hermes/NousResearch (GitHub-backed, no separate auth)
+	@command -v hermes >/dev/null 2>&1 || { echo "ERROR: hermes not installed"; exit 1; }
+	@for s in $(ALL_SKILLS); do \
+		echo "== $$s =="; \
+		hermes skills publish $$s --to github --repo konecty/skills || exit 1; \
+	done
+
+publish: validate publish-gh publish-clawhub publish-hermes ## Publish to all marketplaces (gh + clawhub + hermes)
+
+## ─── E2E harness (dockerized Konecty + pseudo-agent) ──────────────────────
 
 e2e: ## Self-contained run: purge -> up -> wait -> coverage gate -> purge (always tears down, even on failure/interrupt)
 	@set -e; \
