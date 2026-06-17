@@ -486,9 +486,9 @@ Referenced by hooks: `emails.push({ server: "smtp_acme", ... })`
   "storage": {
     "type": "server",
     "config": {
-      "upload": "https://blob.acme.com.br",
-      "preview": "https://blob.acme.com.br",
-      "headers": { "origin": "https://crm.acme.com.br" }
+      "upload": "https://blob.example.com",
+      "preview": "https://blob.example.com",
+      "headers": { "origin": "https://crm.example.com" }
     }
   },
   "QueueConfig": {

@@ -201,9 +201,9 @@ File storage configuration. Three types supported:
 {
   "type": "server",
   "config": {
-    "upload": "https://blob.acme.com.br",
-    "preview": "https://blob.acme.com.br",
-    "headers": { "origin": "https://crm.acme.com.br" }
+    "upload": "https://blob.example.com",
+    "preview": "https://blob.example.com",
+    "headers": { "origin": "https://crm.example.com" }
   }
 }
 ```
@@ -327,7 +327,7 @@ OTP (One-Time Password) delivery configuration:
   "active": true,
   "name": "Acme Inc.",
   "shortName": "Acme",
-  "siteURL": "https://www.acmeciaimobiliaria.com.br/",
+  "siteURL": "https://www.example.com/",
   "dateFormat": "ccc LLL dd yyyy TTT",
   "exportXlsLimit": 2500,
   "sendAlertEmail": true,
@@ -349,9 +349,9 @@ OTP (One-Time Password) delivery configuration:
   "storage": {
     "type": "server",
     "config": {
-      "upload": "https://blob.acme.com.br",
-      "preview": "https://blob.acme.com.br",
-      "headers": { "origin": "https://crm.acme.com.br" }
+      "upload": "https://blob.example.com",
+      "preview": "https://blob.example.com",
+      "headers": { "origin": "https://crm.example.com" }
     }
   },
   "QueueConfig": {

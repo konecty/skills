@@ -418,7 +418,7 @@ How it works:
 if (data.professionalPicturesNotes && (!original || original.professionalPicturesNotes !== data.professionalPicturesNotes)) {
   emails.push({
     toPath: '_user.0.emails.0.address',
-    from: 'Atendimento <atendimento@acme.com.br>',
+    from: 'Atendimento <atendimento@example.com>',
     server: 'smtp_acme',
     template: 'professional-pictures-notes-changed',
     relations: { _user: 1 }
