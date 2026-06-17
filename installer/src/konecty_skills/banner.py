@@ -84,16 +84,6 @@ def _use_color(stream) -> bool:
     return tty and not no_color_env
 
 
-def print_banner(stream=None) -> None:
-    """Print the wordmark banner to *stream* (default: sys.stdout).
-
-    Color is disabled when the stream is not a TTY or ``NO_COLOR`` is set.
-    """
-    if stream is None:
-        stream = sys.stdout
-    stream.write(render(color=_use_color(stream)))
-
-
 def full(color: bool = True, globe_height: int = 13) -> str:
     """Return the combined banner: the brand globe centered above the wordmark."""
     from . import globe  # local import keeps banner usable without the globe

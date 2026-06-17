@@ -5,7 +5,7 @@ import io
 import os
 import unittest
 
-from konecty_skills.banner import full, print_banner, print_full, render
+from konecty_skills.banner import full, print_full, render
 
 
 class TestFullBanner(unittest.TestCase):
@@ -73,7 +73,7 @@ class TestPrintBannerNonTTY(unittest.TestCase):
         buf = self._make_non_tty()
         env_backup = os.environ.pop("NO_COLOR", None)
         try:
-            print_banner(stream=buf)
+            print_full(stream=buf)
         finally:
             if env_backup is not None:
                 os.environ["NO_COLOR"] = env_backup
@@ -83,7 +83,7 @@ class TestPrintBannerNonTTY(unittest.TestCase):
 
     def test_non_tty_contains_subtitle(self) -> None:
         buf = self._make_non_tty()
-        print_banner(stream=buf)
+        print_full(stream=buf)
         self.assertIn("BUSINESS PLATFORM", buf.getvalue())
 
     def test_no_color_env_disables_color(self) -> None:
@@ -93,7 +93,7 @@ class TestPrintBannerNonTTY(unittest.TestCase):
         old = os.environ.get("NO_COLOR")
         os.environ["NO_COLOR"] = "1"
         try:
-            print_banner(stream=buf)
+            print_full(stream=buf)
         finally:
             if old is None:
                 del os.environ["NO_COLOR"]

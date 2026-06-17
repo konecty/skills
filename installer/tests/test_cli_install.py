@@ -103,7 +103,7 @@ class TestCmdInstall(unittest.TestCase):
         with (
             patch("konecty_skills.fetcher.fetch_skills", return_value=self._make_fetch_return()),
             patch("konecty_skills.credentials.run_otp", return_value=True),
-            patch("konecty_skills.banner.print_banner"),
+            patch("konecty_skills.banner.print_full"),
         ):
             rc = main([
                 "install",
@@ -146,7 +146,7 @@ class TestCmdInstall(unittest.TestCase):
         with (
             patch("konecty_skills.fetcher.fetch_skills", return_value=self._make_fetch_return()),
             patch("konecty_skills.credentials.run_otp", return_value=True),
-            patch("konecty_skills.banner.print_banner"),
+            patch("konecty_skills.banner.print_full"),
         ):
             rc = main([
                 "install",
@@ -172,7 +172,7 @@ class TestCmdInstall(unittest.TestCase):
 
         with (
             patch("konecty_skills.fetcher.fetch_skills", side_effect=FetchError("network down")),
-            patch("konecty_skills.banner.print_banner"),
+            patch("konecty_skills.banner.print_full"),
         ):
             rc = main([
                 "install",
