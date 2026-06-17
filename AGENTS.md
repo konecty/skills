@@ -4,6 +4,10 @@ Guidance for AI coding agents working in this repository.
 
 > This file is `AGENTS.md`; `CLAUDE.md` is a symlink to it. Edit `AGENTS.md`.
 
+## Language
+
+Respond to the user in **pt-BR** (Brazilian Portuguese). Code, identifiers, file contents, and SKILL.md/reference docs follow their own conventions (English where the codebase already uses English); only the conversational replies are in pt-BR.
+
 ## Read first
 
 - `README.md` — what the repo is, how the skills install, the two-skill layout.

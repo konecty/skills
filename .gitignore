@@ -33,6 +33,10 @@ node_modules/
 # Konecty local credentials (never commit)
 skills/konecty-session/.env
 
+# Local-only source maps — may reference client/project names; never commit (konecty-dev D13)
+*.local.md
+.specs/**/SOURCES.local.md
+
 # codebase-intelligence audit output
 .codebase-audit/
 

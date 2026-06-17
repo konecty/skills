@@ -4,9 +4,28 @@
 
 ## Current focus
 
+- **Feature PLANNED (in flight):** `konecty-dev` — third skill, advisory (teaches developer-agents to write code against Konecty: Python SDK / TS SDK / raw REST). Grill-with-docs done; `spec.md` + `design.md` + `tasks.md` (T1–T13) + ADR-0005 + decision log (D1–D13) written. **Next: EXECUTE** — T1 scaffold (sequential), then T2–T10 reference docs as parallel Sonnet subagents, then T11–T13 (eval + changelog + gate). Spec: `.specs/features/konecty-dev/`.
 - **Feature COMPLETE:** `e2e-harness` — dockerized Konecty stack + pseudo-agent driving every skill subcommand. **93% line coverage** of the skill scripts (gate `--fail-under=90`), 472 tests passing + 1 documented xfail. Both completion-gate audits pass (intelligence + security = `warn`, no `fail`). konecty-data tested live on 3.8.10 where the public image agrees; the drifted/meta surface covered by the faithful `MockKonecty`. Live swap for konecty-meta deferred to a PR-299 image (D8). Spec: `.specs/features/e2e-harness/`.
 
 ## Decisions
+
+### 2026-06-17 — konecty-dev skill design (feature: konecty-dev)
+
+Third skill. Resolved end-to-end in a `grill-with-docs` session. Full spec: `.specs/features/konecty-dev/spec.md`. Sensitive-source policy: `docs/adr/0005-reference-examples-patterns-not-content.md`.
+
+- **D1. Purely advisory.** Unlike `konecty-data`/`konecty-meta` (operational — scripts that *run* REST calls), `konecty-dev` *teaches*: a lean `SKILL.md` → curated `references/`, generating code the developer embeds. **No `scripts/`, no live calls.** For interactive data inspection during dev, it points to `konecty-data`.
+- **D2. Name = `konecty-dev`** (keeps `konecty-<domain>`; "developer-agent writing integration code", not bound to one access medium). `konecty-sdk` rejected (undersells the raw-REST half, collides with upstream SDK repo names).
+- **D3. Boundary by intent.** "Operate now" (buscar/criar/listar dados concretos) → `konecty-data`/`konecty-meta`; "build an integration / write code / use the SDK" → `konecty-dev`. Tie-breaker for ambiguous "give me an example": mentions language/SDK/file/project → `konecty-dev`; mentions concrete data → `konecty-data`.
+- **D4. REST = first-class agnostic track** (via `curl`, complete), not just a fallback — for languages without an SDK (Java, Go, PHP). Complete references **per scenario** (Python SDK / TS SDK / REST). No per-language samples beyond Python/TS.
+- **D5. 3-level fallback cascade:** SDK feature → use SDK; feature absent but language has SDK → native HTTP client reusing the same token (don't switch SDKs); no SDK → raw REST. Each SDK doc has a "Gaps → REST" section. SDK gaps mapped: Python lacks `getHistory`/`getMenu`/`lookup`/metadata; TS lacks client-level file upload (separate `FilesManager`); neither covers `/api/admin/meta/*`.
+- **D6. Auth for code = service-account token** (`authId` from `POST /rest/auth/login`, stored in `KONECTY_TOKEN` env, never hardcoded) + security practices. OTP / `~/.konecty/.env` only a dev-time shortcut, not production.
+- **D7. Re-document curated** (not vendored, not link-only); pinned to tested SDK versions (Python `2.0.3`, TS `1.0.0`); each doc opens "Tested against vX.Y.Z — full surface in `<repo>/docs/api.md`".
+- **D8. Out of the shared-files invariant.** No `auth.py`/`modules.py`; auth doc (`auth-for-code.md`, service token) is distinct from the OTP `auth.md`. Not in `shared-files.txt`.
+- **D9. `hooks.md` self-contained, "write-the-logic" cut.** 4 types (purpose, lifecycle, sandbox vars, examples). Controlled conceptual overlap with `konecty-meta/hook.md` (which *manages/persists* hooks) accepted; closes pointing to `konecty-meta` to version/apply. Server contract mined from `Konecty/src/imports/data/scripts.js` + `docs/{en,pt-BR}/hooks.md` + Konecty ADR-0005 (`scriptAfterSave` outside the transaction).
+- **D10. Reference-project examples = patterns, not content** (ADR-0005). Mine `reference-metas` (codename) for idiomatic *shape* only; rewrite 100% with generic modules + invented logic; sanitization checklist per example.
+- **D11. Verification proportional to advisory nature:** `make validate` (mandatory) + curated example verification at authoring time + triggering eval via `skill-creator` + sanitization `grep` in the gate. **No** dedicated CI compile harness, **no** e2e Docker, **no** shared-files.
+- **D12. Language:** `SKILL.md` `description` bilingual (pt-BR + EN triggers, like existing skills); reference bodies in **English**.
+- **D13. No client name in tracked files / history** (public repo). Tracked files use codename `reference-metas`; real path only in git-ignored `.specs/features/konecty-dev/SOURCES.local.md` (`*.local.md` + `SOURCES.local.md` added to `.gitignore`). A `grep` gate fails on any known client name — verify it *never entered* rather than clean up later.
 
 ### 2026-06-17 — installer CLI design (feature: konecty-skills-installer)
 
