@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 from pathlib import Path
 
 from konecty_skills import engines as _engines
@@ -302,7 +301,6 @@ def uninstall(
     installation = installations[key]
 
     import hashlib as _hashlib
-    from konecty_skills.manifest import hash_file as _hash_file
 
     removed = 0
     skipped: list[dict] = []

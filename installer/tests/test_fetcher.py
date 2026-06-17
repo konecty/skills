@@ -1,7 +1,6 @@
 """Unit tests for konecty_skills.fetcher — no network access."""
 from __future__ import annotations
 
-import gzip
 import io
 import tarfile
 import unittest
@@ -173,7 +172,7 @@ class TestFetchSkillsNetworkErrors(unittest.TestCase):
         from konecty_skills.fetcher import _download
 
         http_err = urllib.error.HTTPError(
-            url="http://x.example.com",
+            url="https://x.example.com",
             code=404,
             msg="Not Found",
             hdrs=None,  # type: ignore[arg-type]
@@ -181,7 +180,7 @@ class TestFetchSkillsNetworkErrors(unittest.TestCase):
         )
         with patch("urllib.request.urlopen", side_effect=http_err):
             with self.assertRaises(FetchError):
-                _download("http://x.example.com")
+                _download("https://x.example.com")
 
     def test_download_helper_wraps_url_error(self) -> None:
         """_download itself must raise FetchError, not a raw URLError."""
@@ -190,7 +189,34 @@ class TestFetchSkillsNetworkErrors(unittest.TestCase):
         url_err = urllib.error.URLError(reason="connection refused")
         with patch("urllib.request.urlopen", side_effect=url_err):
             with self.assertRaises(FetchError):
-                _download("http://x.example.com")
+                _download("https://x.example.com")
+
+
+class TestDownloadSchemeGuard(unittest.TestCase):
+    """B310 — _download must reject non-https schemes before calling urlopen."""
+
+    def test_http_scheme_raises_fetch_error(self) -> None:
+        """Plain http:// URL must raise FetchError without touching the network."""
+        from konecty_skills.fetcher import _download
+
+        with self.assertRaises(FetchError) as ctx:
+            _download("http://example.com/archive.tar.gz")
+
+        self.assertIn("https", str(ctx.exception).lower())
+
+    def test_file_scheme_raises_fetch_error(self) -> None:
+        """file:// URL must raise FetchError (SSRF / local-read guard)."""
+        from konecty_skills.fetcher import _download
+
+        with self.assertRaises(FetchError):
+            _download("file:///etc/passwd")
+
+    def test_ftp_scheme_raises_fetch_error(self) -> None:
+        """ftp:// URL must raise FetchError."""
+        from konecty_skills.fetcher import _download
+
+        with self.assertRaises(FetchError):
+            _download("ftp://example.com/archive.tar.gz")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import io
 import tarfile
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -22,8 +23,14 @@ def _download(url: str, token: str | None = None) -> bytes:
     """Fetch *url* and return the raw response bytes.
 
     If *token* is provided it is sent as a Bearer Authorization header.
-    Raises FetchError on any network or HTTP error.
+    Raises FetchError on any network or HTTP error, or if the URL scheme is
+    not ``https`` (B310 guard against file:// and SSRF vectors).
     """
+    # B310: only allow https; GitHub archive and API are always https.
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme != "https":
+        raise FetchError(f"Unsupported URL scheme {scheme!r}; only https is allowed.")
+
     headers: dict[str, str] = {}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -31,7 +38,7 @@ def _download(url: str, token: str | None = None) -> bytes:
 
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req) as resp:  # noqa: S310  # nosec B310 - https-only guard above
             return resp.read()
     except (urllib.error.HTTPError, urllib.error.URLError) as exc:
         raise FetchError(f"Download failed for {url}: {exc}") from exc

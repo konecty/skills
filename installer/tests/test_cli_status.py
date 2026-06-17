@@ -285,5 +285,50 @@ class TestCmdDoctor(unittest.TestCase):
         self.assertIn("No credentials configured", out)
 
 
+class TestProbeKonectySchemeGuard(unittest.TestCase):
+    """B310 — _probe_konecty must reject unsupported URL schemes."""
+
+    def test_unsupported_scheme_returns_false(self) -> None:
+        """A file:// or other non-http/https URL must not reach urlopen."""
+        from konecty_skills.cli import _probe_konecty
+
+        ok, detail = _probe_konecty("file:///etc/passwd", "tok")
+        self.assertFalse(ok)
+        self.assertIn("scheme", detail.lower())
+
+    def test_ftp_scheme_returns_false(self) -> None:
+        """An ftp:// URL must return (False, ...) without network access."""
+        from konecty_skills.cli import _probe_konecty
+
+        ok, detail = _probe_konecty("ftp://example.com", "tok")
+        self.assertFalse(ok)
+
+    def test_https_scheme_is_allowed(self) -> None:
+        """https:// passes the scheme check (network call patched out)."""
+        from konecty_skills.cli import _probe_konecty
+        import urllib.error
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
+            ok, _detail = _probe_konecty("https://example.com", "tok")
+        # Should fail due to network error, not scheme error.
+        self.assertFalse(ok)
+
+    def test_http_scheme_is_allowed(self) -> None:
+        """http:// passes the scheme check (network call patched out)."""
+        from konecty_skills.cli import _probe_konecty
+        import urllib.error
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
+            ok, _detail = _probe_konecty("http://localhost:3000", "tok")
+        # Should fail due to network error, not scheme error.
+        self.assertFalse(ok)
+
+
 if __name__ == "__main__":
     unittest.main()

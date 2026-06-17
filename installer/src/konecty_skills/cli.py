@@ -35,12 +35,7 @@ def _env_path() -> Path:
     return _konecty_home() / ".env"
 
 
-# --- command stubs (replaced by real wiring in T10–T13) --------------------
-
-def _stub(name: str) -> int:
-    print(f"konecty-skills: '{name}' is not implemented yet.", file=sys.stderr)
-    return 0
-
+# --- commands ---------------------------------------------------------------
 
 def cmd_install(args: argparse.Namespace) -> int:
     from . import banner, credentials, engines, fetcher, installer, manifest, ui
@@ -162,16 +157,23 @@ def _probe_konecty(url: str, token: str) -> tuple[bool, str]:
     Returns (reachable, detail).  All exceptions are caught so this is always
     safe to call — callers just inspect the boolean.
     """
+    import urllib.parse
     import urllib.request
     import urllib.error
 
     probe_url = f"{url.rstrip('/')}/api/auth/login-options"
+
+    # B310: guard scheme before calling urlopen.
+    scheme = urllib.parse.urlparse(probe_url).scheme.lower()
+    if scheme not in ("http", "https"):
+        return False, f"unsupported URL scheme: {scheme!r}"
+
     try:
         req = urllib.request.Request(
             probe_url,
             headers={"Authorization": f"Bearer {token}"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310  # nosec B310 - scheme guarded above
             return True, f"HTTP {resp.status}"
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
@@ -215,7 +217,6 @@ def cmd_configure(args: argparse.Namespace) -> int:
     if run_otp_now:
         # Find auth.py from the manifest (first installation containing konecty-data).
         m = manifest.load(_manifest_path())
-        root = _root(args)
         auth_py: Path | None = None
         for inst_root_str, installation in m.get("installations", {}).items():
             for _key, skill_info in installation.get("skills", {}).items():

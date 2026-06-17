@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 - drives the bundled auth.py CLI (arg list, no shell=True)
 import sys
 import urllib.parse
 from pathlib import Path
@@ -15,7 +15,7 @@ def current_env(path: Path = DEFAULT_ENV_PATH) -> dict:
 
     Returns a dict with keys "url" and "token"; each is None when missing.
     """
-    result: dict = {"url": None, "token": None}
+    result: dict = {"url": None, "token": None}  # nosec B105 - dict of None defaults, not a secret
     try:
         with open(path, "r", encoding="utf-8") as fh:
             for line in fh:
@@ -62,7 +62,7 @@ def run_otp(url: str, auth_py: Path, identifier: str) -> bool:
     """
     flag = "--email" if "@" in identifier else "--phone"
     try:
-        req_result = subprocess.run(
+        req_result = subprocess.run(  # nosec B603 - arg list, no shell; drives bundled auth.py
             [sys.executable, str(auth_py), "request-otp", "--host", url, flag, identifier],
             check=False,
         )
@@ -71,7 +71,7 @@ def run_otp(url: str, auth_py: Path, identifier: str) -> bool:
 
         code = input("Enter the 6-digit OTP code: ").strip()
 
-        ver_result = subprocess.run(
+        ver_result = subprocess.run(  # nosec B603 - arg list, no shell; drives bundled auth.py
             [
                 sys.executable,
                 str(auth_py),

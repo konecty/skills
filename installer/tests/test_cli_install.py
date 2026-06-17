@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Ensure the package is importable when run via the gate command.
 _src = str(Path(__file__).parent.parent / "src")

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 DEFAULT_MANIFEST_PATH: Path = Path.home() / ".konecty" / "manifest.json"
