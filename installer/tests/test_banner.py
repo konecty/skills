@@ -5,7 +5,28 @@ import io
 import os
 import unittest
 
-from konecty_skills.banner import print_banner, render
+from konecty_skills.banner import full, print_banner, print_full, render
+
+
+class TestFullBanner(unittest.TestCase):
+    """full() stacks the globe above the wordmark."""
+
+    def test_full_color_has_globe_and_wordmark(self) -> None:
+        out = full(color=True)
+        self.assertIn("\033[38;2;", out)          # globe truecolor cells
+        self.assertIn("BUSINESS PLATFORM", out)    # wordmark subtitle
+        # The globe block adds rows above the 6-row wordmark + subtitle.
+        self.assertGreater(len(out.split("\n")), 16)
+
+    def test_full_plain_has_no_escapes(self) -> None:
+        out = full(color=False)
+        self.assertNotIn("\033[", out)
+        self.assertIn("BUSINESS PLATFORM", out)
+
+    def test_print_full_non_tty_omits_color(self) -> None:
+        buf = io.StringIO()  # isatty() is False
+        print_full(stream=buf)
+        self.assertNotIn("\033[", buf.getvalue())
 
 
 class TestRenderColor(unittest.TestCase):

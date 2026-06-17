@@ -42,8 +42,8 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     assume_yes: bool = args.yes
 
-    # 1. Print banner.
-    banner.print_banner()
+    # 1. Print banner (globe + wordmark).
+    banner.print_full()
 
     # 2. Determine project root.
     root: Path = Path.cwd() if args.scope == "project" else Path.home()

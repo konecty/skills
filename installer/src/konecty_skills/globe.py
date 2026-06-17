@@ -1,9 +1,12 @@
-"""Konecty globe — a rasterized truecolor ASCII sphere homage to the brand logo.
+"""Konecty globe — a truecolor ASCII sphere homage to the brand logo.
 
-Maps each terminal cell to a point on a unit sphere, colors it by the logo's
-angular palette distribution (red left, orange/gold top, green right, blue/purple
-bottom, magenta bottom-left, cyan core) and applies spherical shading sqrt(1-r^2)
-for volume. Run as a module to print it:
+The logo is a set of organic, interlocking "puzzle" blobs separated by white
+channels, wrapped on a sphere. We reproduce that look with a spherical Voronoi:
+seed points are spread over the sphere (Fibonacci lattice), each painted with a
+brand color chosen from the logo's angular distribution (red left, orange/gold
+top, green right, blue/purple bottom, magenta bottom-left, cyan core). Pixels
+near a cell boundary become white channels; spherical shading sqrt(1-r^2) adds
+volume. Run as a module to print it:
 
     python3 -m konecty_skills.globe [height]
 """
@@ -24,18 +27,22 @@ _LBLUE = (96, 176, 216)
 _DBLUE = (40, 96, 150)
 _PURPLE = (120, 82, 152)
 _MAGENTA = (168, 42, 92)
+_WHITE = (244, 244, 246)
 
-# Density ramp for the no-color fallback (dark rim → lit center).
-_RAMP = " .:-=+*#%@"
+# Tuning: seed count controls blob size; channel width controls the white gaps.
+_SEEDS = 30
+_CHANNEL = 0.052
+# Density ramp for the no-color fallback (used only for shaded cells).
+_RAMP = "-=+*#%@"
 
 
-def _sector(theta: float, r: float) -> tuple[int, int, int]:
-    """Pick a base color from angle (degrees, clockwise from top) and radius."""
-    if r < 0.30:  # central cyan core
+def _palette(theta: float, r: float) -> tuple[int, int, int]:
+    """Pick a brand color from a seed's angle (deg, clockwise from top) + radius."""
+    if r < 0.32:  # central cyan core
         return _LBLUE
-    if 0.30 <= r < 0.60 and 250 <= theta < 320:  # salmon-pink mid ring, center-left
+    if 0.32 <= r < 0.62 and 250 <= theta < 320:  # salmon-pink mid ring, center-left
         return _PINK
-    if 0.30 <= r < 0.66 and 150 <= theta < 215:  # light-blue lobe reaching down
+    if 0.32 <= r < 0.68 and 150 <= theta < 215:  # light-blue lobe reaching down
         return _LBLUE
     if theta < 35:
         return _GOLD
@@ -54,13 +61,29 @@ def _sector(theta: float, r: float) -> tuple[int, int, int]:
     return _ORANGE
 
 
+def _fib_sphere(n: int) -> list[tuple[float, float, float, tuple[int, int, int]]]:
+    """Evenly-spread seed directions on the unit sphere, each with a brand color."""
+    seeds = []
+    golden = math.pi * (3 - math.sqrt(5))
+    for k in range(n):
+        z = 1 - 2 * (k + 0.5) / n
+        rho = math.sqrt(max(0.0, 1 - z * z))
+        t = golden * k
+        sx, sy = rho * math.cos(t), rho * math.sin(t)
+        theta = (math.degrees(math.atan2(sx, -sy)) + 360) % 360
+        color = _palette(theta, math.hypot(sx, sy))
+        seeds.append((sx, sy, z, color))
+    return seeds
+
+
 def render(height: int = 24, color: bool = True) -> str:
     """Return the globe as a multi-line string.
 
-    When *color* is True, each cell is a truecolor block; otherwise a shaded
-    density character (no ANSI escapes) is used.
+    Colored cells are truecolor blocks separated by white channels; with
+    ``color=False`` cells become shaded density chars and channels become spaces.
     """
     width = height * 2  # terminal cells are ~2:1 tall:wide
+    seeds = _fib_sphere(_SEEDS)
     rows: list[str] = []
     for j in range(height):
         cells: list[str] = []
@@ -71,16 +94,30 @@ def render(height: int = 24, color: bool = True) -> str:
             if r > 1.0:
                 cells.append(" ")
                 continue
-            theta = (math.degrees(math.atan2(nx, -ny)) + 360) % 360
-            nz = math.sqrt(max(0.0, 1 - r * r))
-            shade = 0.40 + 0.60 * nz
+            z = math.sqrt(max(0.0, 1 - r * r))
+            # Nearest two seeds by 3D dot product (cosine similarity).
+            best = second = -2.0
+            best_color = _WHITE
+            for sx, sy, sz, scol in seeds:
+                d = nx * sx + ny * sy + z * sz
+                if d > best:
+                    second, best, best_color = best, d, scol
+                elif d > second:
+                    second = d
+            shade = 0.42 + 0.58 * z
             if r > 0.965:  # darken the rim
                 shade *= 0.6
+            is_channel = (best - second) < _CHANNEL
+            if is_channel:
+                cr, cg, cb = _WHITE
+            else:
+                cr, cg, cb = best_color
             if color:
-                cr, cg, cb = _sector(theta, r)
                 cells.append(
                     f"\033[38;2;{int(cr * shade)};{int(cg * shade)};{int(cb * shade)}m█"
                 )
+            elif is_channel:
+                cells.append(" ")
             else:
                 cells.append(_RAMP[min(len(_RAMP) - 1, int(shade * (len(_RAMP) - 1)))])
         rows.append("".join(cells) + ("\033[0m" if color else ""))

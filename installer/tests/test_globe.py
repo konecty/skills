@@ -14,14 +14,14 @@ class TestGlobeRender(unittest.TestCase):
         self.assertNotIn("\033[", art)
 
     def test_is_circular(self):
-        # Corners must be blank (outside the unit circle); the middle row's
-        # center must be filled.
+        # Corners must be blank (outside the unit circle); the middle row must
+        # carry sphere body (some non-space cells — blobs, not just channels).
         art = globe.render(height=16, color=False)
         lines = art.split("\n")
         self.assertEqual(lines[0][0], " ")
         self.assertEqual(lines[0][-1], " ")
         mid = lines[len(lines) // 2]
-        self.assertNotEqual(mid[len(mid) // 2], " ")
+        self.assertGreater(len(mid.strip()), 10)
 
     def test_row_count_matches_height(self):
         self.assertEqual(len(globe.render(height=20, color=False).split("\n")), 20)

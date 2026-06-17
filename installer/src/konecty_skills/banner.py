@@ -75,21 +75,37 @@ def render(color: bool = True) -> str:
     return "\n".join(lines)
 
 
-def print_banner(stream=None) -> None:
-    """Print the banner to *stream* (default: sys.stdout).
-
-    Color is disabled when:
-    - the stream has no ``isatty`` method or ``isatty()`` returns False, OR
-    - the ``NO_COLOR`` environment variable is set to any value.
-    """
-    if stream is None:
-        stream = sys.stdout
-
+def _use_color(stream) -> bool:
     no_color_env = "NO_COLOR" in os.environ
     try:
         tty = stream.isatty()
     except Exception:
         tty = False
+    return tty and not no_color_env
 
-    use_color = tty and not no_color_env
-    stream.write(render(color=use_color))
+
+def print_banner(stream=None) -> None:
+    """Print the wordmark banner to *stream* (default: sys.stdout).
+
+    Color is disabled when the stream is not a TTY or ``NO_COLOR`` is set.
+    """
+    if stream is None:
+        stream = sys.stdout
+    stream.write(render(color=_use_color(stream)))
+
+
+def full(color: bool = True, globe_height: int = 13) -> str:
+    """Return the combined banner: the brand globe centered above the wordmark."""
+    from . import globe  # local import keeps banner usable without the globe
+
+    glines = globe.render(globe_height, color=color).split("\n")
+    pad = " " * 26  # center the globe (~2*height wide) over the wordmark block
+    globe_block = "\n".join(pad + ln for ln in glines)
+    return globe_block + "\n" + render(color=color)
+
+
+def print_full(stream=None) -> None:
+    """Print the combined globe + wordmark banner (used by `install`)."""
+    if stream is None:
+        stream = sys.stdout
+    stream.write(full(color=_use_color(stream)) + "\n")
