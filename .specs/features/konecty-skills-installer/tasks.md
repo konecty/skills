@@ -6,6 +6,8 @@
 
 > Execution decisions: Phase 2 (T2–T7) runs as parallel Sonnet subagents; no MCPs (stdlib + native tools only); `copywriting` optional in T14, `verify` optional in T15.
 
+> **Progress:** ✅ **T1–T15 ALL DONE & committed.** 128 unit tests green (`make installer-test`); build gate green (`uvx --from ./installer konecty-skills --help`); T15 integration validation ALL PASS (`SUMMARY.md`). Open item: merge this branch to `main` so `install` (default `ref=main`) finds the consolidated skills — see SUMMARY 🚩.
+
 ---
 
 ## Testing approach (installer subtree)
