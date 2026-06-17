@@ -86,6 +86,49 @@ cp .env.example .env
 
 > The Gen Agent Trust Hub audit is web-only — paste the skill URL at [ai.gendigital.com/agent-trust-hub](https://ai.gendigital.com/agent-trust-hub).
 
+## End-to-end testing
+
+A self-contained, reproducible harness boots a disposable Konecty stack and drives every subcommand of both skills via a deterministic pseudo-agent.
+
+### Quick start
+
+```bash
+make e2e          # self-contained: purge → up → wait → coverage gate → purge (always tears down)
+```
+
+**Prerequisites:** Docker (for the stack), `uv` (the suite runs via `uv run --with pytest --with coverage`).
+
+### What gets tested
+
+- **konecty-data (live)** — the subset the public `konecty/konecty:3.8.10` image supports is exercised against a real stack: `auth login-options`, `modules list/fields/search`, `find find` (filter/fields/ndjson), `create create`, `update update` (explicit `--ids`).
+- **konecty-data (mock)** — the paths that require `/rest/query/json` with a `relations` array (which the public image rejects) are covered by an in-memory `MockKonecty`: `find query/sql`, `create lookup`, `update patch`, `delete`.
+- **konecty-meta (mock)** — the `/api/admin/meta/*` admin API is implemented in Konecty PR [#299](https://github.com/konecty/Konecty/pull/299) (branch `feature/meta-crud-api`) but is not yet in any published image. All 11 subcommands (`read`, `document`, `list`, `view`, `access`, `pivot`, `hook`, `namespace`, `doctor`, `sync`, `remove`) run against a faithful in-memory mock of that contract. Live swap is deferred to when a PR-299 image ships (see `.specs/project/STATE.md` D8).
+- **Security suite** (`tests/e2e/test_security.py`) — credential fast-fail, bad-token 401 (no traceback), delete/upload `--confirm` guards, OTP local validation, invalid hook/webhook rejection, token-not-leaked, injection payloads transported as data.
+- **Intent router** (`tests/e2e/test_inference.py`) — a deterministic PT/EN phrase → skill-command router (no LLM) validates that common user phrases map to the right subcommand.
+
+Coverage gate: **≥90%** of the skill scripts (`--fail-under=90`). Current result: **93%**. Reports: terminal + HTML (`tests/coverage_html/`) + XML.
+
+### Make targets
+
+| Target | What it does |
+|--------|--------------|
+| `make e2e` | Self-contained run: purge → up → wait → coverage gate → **purge** (tears down with `down -v` even on failure/interrupt) |
+| `make e2e-up` | Boot the stack and wait until `/liveness` is healthy |
+| `make e2e-down` | Stop the stack (keeps volumes) |
+| `make e2e-reset` | Stop and **drop volumes** — clean DB + fresh admin next boot |
+| `make e2e-wait` | Poll `/liveness` until healthy (standalone) |
+| `make e2e-token` | Extract admin token from container logs (print only) |
+| `make e2e-run` | Run the full suite (live + mock + security + inference) |
+| `make e2e-cov` | Run suite with coverage and the ≥90% gate |
+| `make e2e-sec` | Run only the security suite |
+| `make e2e-infer` | Run only the inference/intent-router suite |
+
+### Stack
+
+`e2e/docker-compose.yml` boots MongoDB (replica set `rs0`) + `mongodb-init` + RabbitMQ + `konecty/konecty:3.8.10` on **alternate ports** (Konecty `:3200`, Mongo `:27117`) so it coexists with a dev Konecty on `:3000`. `make e2e-reset` (`down -v`) gives a clean DB and a fresh admin each round.
+
+For full context and design decisions (D1–D10) see `.specs/features/e2e-harness/` and `.specs/project/STATE.md`.
+
 ## Documentation
 
 - [Contributing & development](./docs/development.md)

@@ -1,0 +1,97 @@
+{
+	"_id": "E2ESync:list:Default",
+	"type": "list",
+	"name": "Default",
+	"document": "E2ESync",
+	"label": {
+		"en": "E2E Sync Test",
+		"pt_BR": "Teste Sync E2E"
+	},
+	"plurals": {
+		"en": "E2E Sync Tests",
+		"pt_BR": "Testes Sync E2E"
+	},
+	"loadDataAtOpen": true,
+	"view": "Default",
+	"rowsPerPage": {
+		"default": 25,
+		"options": [10, 25, 50, 100]
+	},
+	"refreshRate": {
+		"default": 0,
+		"options": [0, 30, 60, 300]
+	},
+	"sorters": [
+		{
+			"term": "_updatedAt",
+			"direction": "desc"
+		}
+	],
+	"columns": {
+		"code": {
+			"name": "code",
+			"linkField": "code",
+			"visible": true,
+			"minWidth": 60,
+			"sort": 0
+		},
+		"title": {
+			"name": "title",
+			"linkField": "title",
+			"visible": true,
+			"minWidth": 200,
+			"sort": 1
+		},
+		"status": {
+			"name": "status",
+			"linkField": "status",
+			"visible": true,
+			"minWidth": 120,
+			"sort": 2
+		},
+		"_updatedAt": {
+			"name": "_updatedAt",
+			"linkField": "_updatedAt",
+			"visible": true,
+			"minWidth": 160,
+			"sort": 3
+		}
+	},
+	"filter": {
+		"match": "and",
+		"minFilledConditions": 0,
+		"conditions": {
+			"code:equals": {
+				"term": "code",
+				"operator": "equals",
+				"editable": true,
+				"disabled": true,
+				"style": {
+					"renderAs": "numberfield"
+				},
+				"sort": 0
+			},
+			"title:contains": {
+				"term": "title",
+				"operator": "contains",
+				"editable": true,
+				"disabled": true,
+				"style": {
+					"renderAs": "textfield"
+				},
+				"sort": 1
+			},
+			"status:in": {
+				"term": "status",
+				"operator": "in",
+				"editable": true,
+				"disabled": true,
+				"style": {
+					"renderAs": "checkbox",
+					"columns": 2
+				},
+				"sort": 2
+			}
+		}
+	}
+}

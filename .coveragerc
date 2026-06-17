@@ -1,0 +1,23 @@
+# Coverage config for the e2e harness. Measures the skill scripts only.
+[run]
+source =
+    skills/konecty-data/scripts
+    skills/konecty-meta/scripts
+omit =
+    */__pycache__/*
+branch = False
+
+[report]
+show_missing = True
+skip_covered = False
+# Defensive/CLI-guard lines that are intentionally not exercised.
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
+
+[html]
+directory = tests/coverage_html
+
+[xml]
+output = tests/coverage.xml

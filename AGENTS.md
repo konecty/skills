@@ -23,6 +23,13 @@ Guidance for AI coding agents working in this repository.
 - `make shared-check` — run the gated shared-files divergence guard on demand.
 - `make validate` — `gh skill publish --dry-run` on both skills (validates SKILL.md against the agentskills.io spec).
 - `make test` / `make test-cov` — integration suite. **Needs a Konecty at `:3000` and credentials in `~/.konecty/.env`** (run `konecty-data` session first).
+- `make e2e` — **full clean e2e cycle**: reset → up → wait → coverage gate (≥90%) → down. The harness lives in `e2e/` (Docker stack) and `tests/e2e/` (pseudo-agent, mocks, suites); runs via `uv`. See README for the full targets table.
+  - `make e2e-up` / `e2e-down` / `e2e-reset` — start / stop / drop-volumes the disposable Konecty stack (`:3200`).
+  - `make e2e-token` — extract admin token from container logs (print only).
+  - `make e2e-run` — run the full suite (live + mock + security + inference) without coverage.
+  - `make e2e-cov` — run with coverage and the ≥90% gate.
+  - `make e2e-sec` — run only the security suite.
+  - `make e2e-infer` — run only the inference/intent-router suite.
 - `make audit` — `codebase-intelligence` + `codebase-security` audits (the PR completion gate — see *Workflow*).
 - `make clean` — remove `__pycache__`, `.coverage`, and coverage report artifacts.
 
