@@ -13,6 +13,9 @@ htmlcov/
 # Tooling caches
 .serena/
 
+# External skills installed via CLI — local only, not tracked in git
+.agents/
+
 # Editors
 .idea/
 .vscode/
