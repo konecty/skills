@@ -4,6 +4,7 @@ All notable changes to KonectySkills are documented here.
 
 | Date | Summary |
 |------|---------|
+| [2026-06-17](./2026-06-17_audit-exclude-agents-complexity-refactor.md) | Exclude `.agents/` from audits (ruff.toml + changed-since dot-dir filter); refactor `cmd_upload`/`cmd_apply` below CC 25 — intelligence gate FAIL→WARN |
 | [2026-06-17](./2026-06-17_agents-md-bestpractices-make-skills.md) | AGENTS.md gains Read first / Commands / completion-gate sections; Makefile expanded; marketing/copywriting skills vendored |
 | [2026-04-23](./2026-04-23_konecty-meta-remove-skill.md) | konecty-meta-remove skill: interactive full-module metadata deletion via `/api/admin/meta` |
 | [2026-03-16](./2026-03-16_repo-initialization.md) | Repository initialization and base structure |

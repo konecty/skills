@@ -170,7 +170,8 @@ if [[ "$HAS_PYTHON" -eq 1 ]]; then
   # Build target file list
   TARGETS_FILE="$OUT_DIR/raw/python/targets.txt"
   if [[ -n "$CHANGED_SINCE" ]]; then
-    (cd "$REPO" && git diff --name-only "$CHANGED_SINCE"...HEAD -- '*.py' || true) > "$TARGETS_FILE"
+    (cd "$REPO" && git diff --name-only "$CHANGED_SINCE"...HEAD -- '*.py' || true) \
+      | { grep -vE '(^|/)\.' || true; } > "$TARGETS_FILE"  # drop dot-dirs (e.g. .agents/) — consistent with full-scan branch
     if [[ ! -s "$TARGETS_FILE" ]]; then
       echo "No Python files changed since $CHANGED_SINCE — skipping Python layers."
       echo '{"schema_version":"1.0","verdict":"pass","summary":{"warnings":["no changed python files"]}}' \

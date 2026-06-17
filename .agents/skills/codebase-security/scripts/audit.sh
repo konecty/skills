@@ -125,7 +125,8 @@ should_skip() {
 TARGETS_FILE="$OUT_DIR/raw/common/targets.txt"
 rm -f "$TARGETS_FILE"
 if [[ -n "$CHANGED_SINCE" ]]; then
-  (cd "$REPO" && git diff --name-only "$CHANGED_SINCE"...HEAD 2>/dev/null || true) > "$TARGETS_FILE"
+  (cd "$REPO" && git diff --name-only "$CHANGED_SINCE"...HEAD 2>/dev/null || true) \
+    | { grep -vE '(^|/)\.' || true; } > "$TARGETS_FILE"  # drop dot-dirs (e.g. .agents/) from scope
   if [[ ! -s "$TARGETS_FILE" ]]; then
     echo "    note: no committed changes since $CHANGED_SINCE — file-level layers will be skipped"
   fi

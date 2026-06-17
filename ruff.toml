@@ -1,0 +1,5 @@
+# Exclude vendored third-party Agent Skills from all ruff-based checks.
+# `.agents/` holds external skills installed via CLI (tracked in skills-lock.json);
+# their code health is upstream's concern, not this repo's. The codebase-intelligence
+# dead_code layer runs `ruff` over the whole repo, so this keeps `.agents/` out of it.
+extend-exclude = [".agents"]

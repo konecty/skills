@@ -268,6 +268,78 @@ def _is_primary_delete_step(item: QueueItem, module: str) -> bool:
     )
 
 
+def _guard_primary_delete(host: str, token: str, module: str, yes_all: bool) -> bool:
+    """For a primary (document/composite) delete, ensure no child metas remain.
+
+    Returns True if the delete may proceed, False if it should be skipped.
+    """
+    live = _fetch_module_metas(host, token, module) or []
+    children_left = [m for m in live if not _is_primary(m, module)]
+    if not children_left:
+        return True
+
+    ids = ", ".join(str(c.get("_id")) for c in children_left)
+    print(f"    Child metas still present: {ids}")
+    if yes_all:
+        print(
+            "    ERROR: refusing primary delete while children remain (fix or re-run plan).",
+            file=sys.stderr,
+        )
+        return False
+    if not _confirm_strong(
+        "Deleting the primary while children remain leaves orphan list/view/access metas.",
+        "DELETE PRIMARY ANYWAY",
+    ):
+        print("    Skipped primary delete.")
+        return False
+    return True
+
+
+def _process_delete_item(
+    host: str, token: str, module: str, item: QueueItem, yes_all: bool
+) -> str:
+    """Process one queue item. Returns 'deleted', 'skipped', or 'failed'."""
+    print(f"\n--- {item.kind.upper()}: {item.label}")
+    print(f"    {API_PREFIX}{item.path}")
+
+    if _is_primary_delete_step(item, module) and not _guard_primary_delete(
+        host, token, module, yes_all
+    ):
+        return "skipped"
+
+    if not yes_all and not _confirm("Proceed with this DELETE?"):
+        print("    Skipped.")
+        return "skipped"
+
+    ok, msg = _execute_delete(host, token, item.path)
+    if ok:
+        print(f"    OK — {msg}")
+        return "deleted"
+    print(f"    FAIL — {msg}", file=sys.stderr)
+    if yes_all:
+        sys.exit(1)
+    return "failed"
+
+
+def _warn_inconsistent_state(host: str, token: str, module: str) -> None:
+    """Emit warnings if leftover metas indicate an inconsistent module state."""
+    remaining = _fetch_module_metas(host, token, module)
+    if not remaining:
+        return
+    primaries = [m for m in remaining if _is_primary(m, module)]
+    children = [m for m in remaining if not _is_primary(m, module)]
+    if children and not primaries:
+        print(
+            "\nWarning: inconsistent state — child metas exist but no primary document for this module.",
+            file=sys.stderr,
+        )
+    if children and primaries:
+        print(
+            "\nWarning: non-primary metas still exist together with the primary document meta.",
+            file=sys.stderr,
+        )
+
+
 def cmd_apply(args: argparse.Namespace) -> None:
     host, token = _creds(args)
     module = args.document
@@ -293,61 +365,12 @@ def cmd_apply(args: argparse.Namespace) -> None:
         return
 
     print(f"\n{len(queue)} deletion step(s) for module {module!r}.\n")
-    skipped = 0
     deleted_any = False
-
     for item in queue:
-        print(f"\n--- {item.kind.upper()}: {item.label}")
-        print(f"    {API_PREFIX}{item.path}")
-
-        if _is_primary_delete_step(item, module):
-            live = _fetch_module_metas(host, token, module) or []
-            children_left = [m for m in live if not _is_primary(m, module)]
-            if children_left:
-                ids = ", ".join(str(c.get("_id")) for c in children_left)
-                print(f"    Child metas still present: {ids}")
-                if yes_all:
-                    print(
-                        "    ERROR: refusing primary delete while children remain (fix or re-run plan).",
-                        file=sys.stderr,
-                    )
-                    skipped += 1
-                    continue
-                if not _confirm_strong(
-                    "Deleting the primary while children remain leaves orphan list/view/access metas.",
-                    "DELETE PRIMARY ANYWAY",
-                ):
-                    print("    Skipped primary delete.")
-                    skipped += 1
-                    continue
-
-        if not yes_all and not _confirm("Proceed with this DELETE?"):
-            print("    Skipped.")
-            skipped += 1
-            continue
-        ok, msg = _execute_delete(host, token, item.path)
-        if ok:
-            print(f"    OK — {msg}")
+        if _process_delete_item(host, token, module, item, yes_all) == "deleted":
             deleted_any = True
-        else:
-            print(f"    FAIL — {msg}", file=sys.stderr)
-            if yes_all:
-                sys.exit(1)
 
-    remaining = _fetch_module_metas(host, token, module)
-    if remaining:
-        primaries = [m for m in remaining if _is_primary(m, module)]
-        children = [m for m in remaining if not _is_primary(m, module)]
-        if children and not primaries:
-            print(
-                "\nWarning: inconsistent state — child metas exist but no primary document for this module.",
-                file=sys.stderr,
-            )
-        if children and primaries:
-            print(
-                "\nWarning: non-primary metas still exist together with the primary document meta.",
-                file=sys.stderr,
-            )
+    _warn_inconsistent_state(host, token, module)
 
     if deleted_any:
         print("\nReloading metadata...")
@@ -387,7 +410,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
             sys.exit(1)
         path = _delete_path_for_meta(primary, doc)
     else:
-        doc, mtype, name = parts[0], parts[1], ":".join(parts[2:])
+        doc, mtype = parts[0], parts[1]
         synthetic = {"_id": meta_id, "type": mtype, "document": doc}
         path = _delete_path_for_meta(synthetic, doc)
 

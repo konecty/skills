@@ -5,7 +5,13 @@ Terraform-style plan/apply workflow. Stdlib only.
 """
 from __future__ import annotations
 
-import argparse, json, os, sys, urllib.error, urllib.parse, urllib.request
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 

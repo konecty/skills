@@ -2,8 +2,12 @@
 """Konecty Meta Access: manage access profile metadata. Stdlib only."""
 from __future__ import annotations
 
-import argparse, json, os, sys, urllib.error, urllib.request
-from typing import Any
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
 
 CREDENTIALS_DIR = os.path.expanduser("~/.konecty")
 ENV_FILE = os.path.join(CREDENTIALS_DIR, ".env")
@@ -57,7 +61,7 @@ def cmd_permissions(args):
     print("Document-level flags:")
     for k, v in doc_flags.items():
         print(f"  {k}: {v}")
-    print(f"\nField defaults:")
+    print("\nField defaults:")
     for k, v in defaults.items():
         print(f"  {k}: {v}")
     print(f"\nField overrides ({len(fields)}):")

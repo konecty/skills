@@ -12,7 +12,6 @@ import json
 import mimetypes
 import os
 import re
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -201,7 +200,7 @@ def cmd_info(args: argparse.Namespace, host: str, token: str) -> None:
     min_items = field.get("minItems", 0)
 
     print(f"Field: {args.document}.{args.field}")
-    print(f"  type:     file")
+    print("  type:     file")
     print(f"  isList:   {is_list} → accepts {'multiple files' if is_list else 'single file'}")
 
     if wildcard:
@@ -209,12 +208,12 @@ def cmd_info(args: argparse.Namespace, host: str, token: str) -> None:
         print(f"  wildcard: {wildcard}")
         print(f"  accepted: {', '.join(f'.{e}' for e in exts)}")
     else:
-        print(f"  accepted: all file types (no restriction)")
+        print("  accepted: all file types (no restriction)")
 
     if max_size_kb:
         print(f"  maxSize:  {max_size_kb} KB ({_format_size(max_size_kb)})")
     else:
-        print(f"  maxSize:  no limit configured (server default: 1 GB)")
+        print("  maxSize:  no limit configured (server default: 1 GB)")
 
     if is_list:
         print(f"  maxItems: {max_items if max_items is not None else 'unlimited'}")
@@ -284,6 +283,91 @@ def cmd_list(args: argparse.Namespace, host: str, token: str) -> None:
     _print_file_list(f"Files in {args.document}/{args.record_id}/{args.field}", files)
 
 
+def _validate_upload_constraints(
+    host: str, token: str, args: argparse.Namespace, ext: str, file_size_bytes: int
+) -> None:
+    """Validate the file against the field's type/wildcard/maxSize constraints."""
+    field = _get_field_meta(host, token, args.document, args.field)
+    if field is None:
+        return
+
+    if field.get("type") != "file":
+        raise SystemExit(
+            f"Field '{args.field}' has type '{field.get('type')}', not 'file'."
+        )
+
+    wildcard = field.get("wildcard", "")
+    if wildcard:
+        allowed = _wildcard_to_extensions(wildcard)
+        if ext not in allowed:
+            raise SystemExit(
+                f"File type '.{ext}' is not accepted for '{args.document}.{args.field}'.\n"
+                f"Accepted types: {', '.join(f'.{e}' for e in allowed)}\n"
+                f"Wildcard pattern: {wildcard}"
+            )
+
+    max_size_kb = field.get("maxSize")
+    if max_size_kb is not None and file_size_bytes > max_size_kb * 1024:
+        raise SystemExit(
+            f"File is too large: {file_size_bytes / 1024:.1f} KB\n"
+            f"Maximum allowed for '{args.document}.{args.field}': "
+            f"{max_size_kb} KB ({_format_size(max_size_kb)})"
+        )
+
+
+def _extract_stored_metadata(result: dict) -> dict:
+    """Pull the stored-file metadata from the nested upload response.
+
+    The response nests: result → coreResponse → coreResponse (full record).
+    Prefer the inner coreResponse (hash-based name) over the outer response.
+    """
+    core1 = result.get("coreResponse") or {}
+    core2 = core1.get("coreResponse") if isinstance(core1, dict) else {}
+    return {
+        "key": core1.get("key") or result.get("key") or "",
+        "name": core1.get("name") or result.get("name") or "",
+        "size": core1.get("size") or result.get("size") or 0,
+        "kind": core1.get("kind") or result.get("kind") or "",
+        "etag": core1.get("etag") or result.get("etag") or "",
+        "core2": core2,
+    }
+
+
+def _print_upload_result(
+    host: str, args: argparse.Namespace, filename: str, result: dict, stored: dict
+) -> None:
+    """Print the success summary, access URLs, and current field file list."""
+    print("Upload successful!")
+    print(f"  stored name: {stored['name']}  (original: {filename})")
+    print(f"  size:  {_format_size(stored['size'] / 1024)}")
+    print(f"  kind:  {stored['kind']}")
+    print(f"  key:   {stored['key']}")
+    if stored["etag"]:
+        print(f"  etag:  {stored['etag']}")
+    if result.get("_id"):
+        print(f"  record _id:        {result['_id']}")
+        print(f"  record _updatedAt: {result.get('_updatedAt')}")
+
+    if stored["key"] or stored["name"]:
+        # Download URL uses the key path (the actual stored file), not the display name
+        key_basename = stored["key"].split("/")[-1] if stored["key"] else stored["name"]
+        encoded_key_name = urllib.parse.quote(key_basename)
+        print("\nAccess URLs:")
+        print(f"  Download:  {host}/rest/file/{args.document}/{args.record_id}/{args.field}/{encoded_key_name}")
+        if stored["kind"].startswith("image/"):
+            print(f"  Thumbnail: {host}/rest/image/thumb/{stored['key']}")
+            print(f"  Full:      {host}/rest/image/full/{stored['key']}")
+
+    # Show the current state of the field (all files, not just the one just uploaded)
+    core2 = stored["core2"]
+    if isinstance(core2, dict):
+        files = _extract_files_from_record(core2, args.field)
+        if files is not None:
+            print()
+            _print_file_list(f"Current files in {args.document}/{args.record_id}/{args.field}", files)
+            print("\nTo delete a file, use the 'name' shown above (not the key).")
+
+
 def cmd_upload(args: argparse.Namespace, host: str, token: str) -> None:
     """Upload a local file to a Konecty document field."""
     file_path = args.file_path
@@ -297,35 +381,9 @@ def cmd_upload(args: argparse.Namespace, host: str, token: str) -> None:
 
     # Validate against field constraints unless explicitly skipped
     if not args.skip_validation:
-        field = _get_field_meta(host, token, args.document, args.field)
-        if field is not None:
-            if field.get("type") != "file":
-                raise SystemExit(
-                    f"Field '{args.field}' has type '{field.get('type')}', not 'file'."
-                )
+        _validate_upload_constraints(host, token, args, ext, file_size_bytes)
 
-            wildcard = field.get("wildcard", "")
-            if wildcard:
-                allowed = _wildcard_to_extensions(wildcard)
-                if ext not in allowed:
-                    raise SystemExit(
-                        f"File type '.{ext}' is not accepted for '{args.document}.{args.field}'.\n"
-                        f"Accepted types: {', '.join(f'.{e}' for e in allowed)}\n"
-                        f"Wildcard pattern: {wildcard}"
-                    )
-
-            max_size_kb = field.get("maxSize")
-            if max_size_kb is not None:
-                max_bytes = max_size_kb * 1024
-                if file_size_bytes > max_bytes:
-                    raise SystemExit(
-                        f"File is too large: {file_size_bytes / 1024:.1f} KB\n"
-                        f"Maximum allowed for '{args.document}.{args.field}': "
-                        f"{max_size_kb} KB ({_format_size(max_size_kb)})"
-                    )
-
-    file_size_kb = file_size_bytes / 1024
-    print(f"Uploading: {filename} ({_format_size(file_size_kb)})")
+    print(f"Uploading: {filename} ({_format_size(file_size_bytes / 1024)})")
     print(f"  → {args.document}/{args.record_id}/{args.field}")
 
     path = f"/rest/file/upload/ns/access/{args.document}/{args.record_id}/{args.field}"
@@ -335,46 +393,8 @@ def cmd_upload(args: argparse.Namespace, host: str, token: str) -> None:
         errors = result.get("errors") if isinstance(result, dict) else result
         raise SystemExit(f"Upload failed: {errors}")
 
-    # The upload response nests: result → coreResponse → coreResponse (full record)
-    # Extract the stored file metadata from the innermost coreResponse
-    core1 = result.get("coreResponse") or {}
-    core2 = core1.get("coreResponse") if isinstance(core1, dict) else {}
-
-    # Prefer stored file metadata (has hash-based name) over outer response (original name)
-    stored_key = (core1.get("key") or result.get("key") or "")
-    stored_name = (core1.get("name") or result.get("name") or "")
-    stored_size = core1.get("size") or result.get("size") or 0
-    stored_kind = core1.get("kind") or result.get("kind") or ""
-    stored_etag = core1.get("etag") or result.get("etag") or ""
-
-    print("Upload successful!")
-    print(f"  stored name: {stored_name}  (original: {filename})")
-    print(f"  size:  {_format_size(stored_size / 1024)}")
-    print(f"  kind:  {stored_kind}")
-    print(f"  key:   {stored_key}")
-    if stored_etag:
-        print(f"  etag:  {stored_etag}")
-    if result.get("_id"):
-        print(f"  record _id:        {result['_id']}")
-        print(f"  record _updatedAt: {result.get('_updatedAt')}")
-
-    if stored_key or stored_name:
-        # Download URL uses the key path (points to the actual stored file), not the display name
-        key_basename = stored_key.split("/")[-1] if stored_key else stored_name
-        encoded_key_name = urllib.parse.quote(key_basename)
-        print(f"\nAccess URLs:")
-        print(f"  Download:  {host}/rest/file/{args.document}/{args.record_id}/{args.field}/{encoded_key_name}")
-        if stored_kind.startswith("image/"):
-            print(f"  Thumbnail: {host}/rest/image/thumb/{stored_key}")
-            print(f"  Full:      {host}/rest/image/full/{stored_key}")
-
-    # Show the current state of the field (all files, not just the one just uploaded)
-    if isinstance(core2, dict):
-        files = _extract_files_from_record(core2, args.field)
-        if files is not None:
-            print()
-            _print_file_list(f"Current files in {args.document}/{args.record_id}/{args.field}", files)
-            print(f"\nTo delete a file, use the 'name' shown above (not the key).")
+    stored = _extract_stored_metadata(result)
+    _print_upload_result(host, args, filename, result, stored)
 
 
 def cmd_delete(args: argparse.Namespace, host: str, token: str) -> None:

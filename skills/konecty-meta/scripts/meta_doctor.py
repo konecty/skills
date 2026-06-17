@@ -2,7 +2,12 @@
 """Konecty Meta Doctor: validate metadata integrity. Stdlib only."""
 from __future__ import annotations
 
-import argparse, json, os, sys, urllib.error, urllib.request
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
 from typing import Any
 
 CREDENTIALS_DIR = os.path.expanduser("~/.konecty")

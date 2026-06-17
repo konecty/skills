@@ -2,7 +2,13 @@
 """Konecty Meta Namespace: manage global Namespace configuration. Stdlib only."""
 from __future__ import annotations
 
-import argparse, json, os, sys, urllib.error, urllib.parse, urllib.request
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any
 
 CREDENTIALS_DIR = os.path.expanduser("~/.konecty")

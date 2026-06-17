@@ -2,7 +2,12 @@
 """Konecty Meta Pivot: manage pivot/report metadata. Stdlib only."""
 from __future__ import annotations
 
-import argparse, json, os, sys, urllib.error, urllib.request
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
 
 CREDENTIALS_DIR = os.path.expanduser("~/.konecty")
 ENV_FILE = os.path.join(CREDENTIALS_DIR, ".env")
