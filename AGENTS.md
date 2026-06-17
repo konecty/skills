@@ -17,8 +17,9 @@ Guidance for AI coding agents working in this repository.
 `make help` lists every target. The ones you'll use:
 
 - `make setup` — point git at `.githooks` (run once after cloning; idempotent).
-- `make check` — **offline gate**: byte-compiles every script + runs the shared-files divergence guard. No live server needed; run before every commit.
+- `make check` — **offline gate**: byte-compiles every script + runs the shared-files divergence guard + the installer unit tests. No live server needed; run before every commit.
 - `make lint` — `py_compile` all skill scripts (stdlib syntax check).
+- `make installer-test` — run the `konecty-skills` installer unit tests (`installer/`, stdlib only, offline).
 - `make shared-check` — run the gated shared-files divergence guard on demand.
 - `make validate` — `gh skill publish --dry-run` on both skills (validates SKILL.md against the agentskills.io spec).
 - `make test` / `make test-cov` — integration suite. **Needs a Konecty at `:3000` and credentials in `~/.konecty/.env`** (run `konecty-data` session first).
@@ -97,6 +98,7 @@ All specs live in `.specs/` (never inside `skills/` or `docs/`):
 
 ```
 skills/              # Konecty platform skills (one folder per skill)
+installer/           # konecty-skills CLI installer (Python pkg, stdlib only; uvx entry point)
 .agents/skills/      # External skills installed via CLI (tracked in skills-lock.json)
 .specs/              # SDD specs: project, codebase analysis, feature specs
 template/            # SKILL.md template for new skills

@@ -4,11 +4,31 @@ Repository of **Agent Skills** for Konecty ecosystem. Skills are folders of inst
 
 For the Agent Skills standard, see [agentskills.io](https://agentskills.io). This repo is inspired by [anthropics/skills](https://github.com/anthropics/skills).
 
+## Quick install
+
+One command detects your AI engine, installs both skills, and sets up your Konecty credentials — without ever deleting or modifying existing files:
+
+```bash
+uvx --from git+https://github.com/konecty/skills konecty-skills install
+```
+
+| Command | What it does |
+|---------|--------------|
+| `install` | Detect engines → select skills → download → copy → set up credentials (OTP) → write manifest |
+| `configure` | Credentials only: write `~/.konecty/.env` (URL + OTP token) |
+| `status` | What is installed, in which engines, and whether credentials are present |
+| `update` | Re-fetch skills with SHA-256 protection (never overwrites local edits) |
+| `doctor` | Validate installed files vs manifest and test the Konecty connection |
+| `uninstall` | Remove the installed skills (credentials kept unless `--purge`) |
+
+The installer is a stdlib-only Python package in [`installer/`](./installer). All commands accept `--yes`/`--engine`/`--scope`/`--url`/`--ref` for non-interactive use.
+
 ## Structure
 
 | Path | Purpose |
 |------|---------|
 | [./skills](./skills) | Konecty platform skills (each skill in its own folder with `SKILL.md`). |
+| [./installer](./installer) | `konecty-skills` CLI installer (Python, stdlib only) — see Quick install above. |
 | [./.agents/skills](./.agents/skills) | External skills installed via CLI (managed by `skills-lock.json`). |
 | [./template](./template) | Template for creating new skills |
 | [./spec](./spec) | Reference to the Agent Skills specification |

@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint validate shared-check test test-cov audit check clean
+.PHONY: help setup lint validate shared-check installer-test test test-cov audit check clean
 
 DATA  := skills/konecty-data
 META  := skills/konecty-meta
@@ -24,6 +24,9 @@ validate: ## Validate both SKILL.md against the agentskills.io spec (needs gh sk
 	@command -v gh >/dev/null 2>&1 || { echo "gh not installed — skipping"; exit 0; }
 	@for s in $(SKILLS); do echo "== $$s =="; (cd $$s && gh skill publish --dry-run) || exit 1; done
 
+installer-test: ## Run the konecty-skills installer unit tests (stdlib only, offline)
+	@(cd installer && PYTHONPATH=src python3 -m unittest discover -s tests -t .)
+
 test: ## Run the integration suite (needs Konecty at :3000 + ~/.konecty/.env)
 	@python3 -m pytest tests/integration -q
 
@@ -34,7 +37,7 @@ audit: ## Code-health + security audit (the completion gate before a PR)
 	@bash .agents/skills/codebase-intelligence/scripts/audit.sh . --changed-since main
 	@bash .agents/skills/codebase-security/scripts/audit.sh . --changed-since main
 
-check: lint shared-check ## Offline gate: syntax + shared-files divergence (no live server)
+check: lint shared-check installer-test ## Offline gate: syntax + shared-files divergence + installer tests (no live server)
 
 clean: ## Remove Python and coverage artifacts
 	@find . -path ./.agents -prune -o -name '__pycache__' -type d -print0 2>/dev/null | xargs -0 rm -rf
