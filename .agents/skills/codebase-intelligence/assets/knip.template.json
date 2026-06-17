@@ -1,0 +1,52 @@
+{
+  "//": [
+    "knip configuration template — copy to your project root as knip.json",
+    "",
+    "Adjust 'entry' to match your actual application entrypoints.",
+    "Adjust 'project' to match where your source files live.",
+    "",
+    "Framework presets: add 'extends' with one of:",
+    "  'next', 'vite', 'remix', 'astro', 'nuxt', 'svelte', 'angular', 'expo', 'gatsby'",
+    "  Example: add  \"extends\": [\"vite\"]  at the top level",
+    "",
+    "'ignoreExportsUsedInFile: true' reduces false positives for types and helpers",
+    "that are exported but only consumed within the same file (common in barrel files",
+    "and module-level type definitions). Set to false for library packages that have",
+    "external consumers — you want to know if a public export is actually unused.",
+    "",
+    "For monorepos with npm/yarn/pnpm workspaces, run knip per-workspace with",
+    "distinct knip.json files, or use knip's workspace configuration:",
+    "  https://knip.dev/reference/configuration#workspaces",
+    "",
+    "Remove this '// ' comment field before committing — it is not valid JSON.",
+    "JSON does not support comments; this field is only here for documentation."
+  ],
+
+  "$schema": "https://unpkg.com/knip/schema.json",
+
+  "entry": [
+    "src/index.{ts,tsx}",
+    "src/main.{ts,tsx}",
+    "src/App.{ts,tsx}",
+    "vite.config.{ts,js}",
+    "vitest.config.{ts,js}",
+    "tailwind.config.{ts,js,cjs}",
+    "postcss.config.{ts,js,cjs}"
+  ],
+
+  "project": [
+    "src/**/*.{ts,tsx,js,jsx}"
+  ],
+
+  "ignore": [
+    "src/**/*.test.{ts,tsx}",
+    "src/**/*.spec.{ts,tsx}",
+    "src/**/*.stories.{ts,tsx}",
+    "src/**/__generated__/**",
+    "src/**/*.d.ts"
+  ],
+
+  "ignoreDependencies": [],
+
+  "ignoreExportsUsedInFile": true
+}

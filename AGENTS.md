@@ -2,6 +2,29 @@
 
 Guidance for AI coding agents working in this repository.
 
+> This file is `AGENTS.md`; `CLAUDE.md` is a symlink to it. Edit `AGENTS.md`.
+
+## Read first
+
+- `README.md` — what the repo is, how the skills install, the two-skill layout.
+- `.specs/project/STATE.md` — decision log and the *why* behind them. Source of truth; update it when a decision changes instead of re-explaining in code or commits. _(Create it on the next session if absent.)_
+- `.specs/codebase/` — brownfield analysis: `STACK.md`, `ARCHITECTURE.md`, `CONVENTIONS.md`, `STRUCTURE.md`, `TESTING.md`, `INTEGRATIONS.md`, `CONCERNS.md`. Read `CONCERNS.md` before touching anything flagged risky.
+- `template/SKILL.md` + `spec/` — the SKILL.md format and the Agent Skills standard. Read before creating or editing a skill.
+- `.specs/features/<feature>/` — `spec.md` / `tasks.md` for whatever feature is in flight.
+
+## Commands
+
+`make help` lists every target. The ones you'll use:
+
+- `make setup` — point git at `.githooks` (run once after cloning; idempotent).
+- `make check` — **offline gate**: byte-compiles every script + runs the shared-files divergence guard. No live server needed; run before every commit.
+- `make lint` — `py_compile` all skill scripts (stdlib syntax check).
+- `make shared-check` — run the gated shared-files divergence guard on demand.
+- `make validate` — `gh skill publish --dry-run` on both skills (validates SKILL.md against the agentskills.io spec).
+- `make test` / `make test-cov` — integration suite. **Needs a Konecty at `:3000` and credentials in `~/.konecty/.env`** (run `konecty-data` session first).
+- `make audit` — `codebase-intelligence` + `codebase-security` audits (the PR completion gate — see *Workflow*).
+- `make clean` — remove `__pycache__`, `.coverage`, and coverage report artifacts.
+
 ## Spec-Driven Development (SDD) — mandatory
 
 This repo follows **Spec-Driven Development** via the [`tlc-spec-driven`](.agents/skills/tlc-spec-driven/SKILL.md) skill. Every non-trivial change must go through the SDD pipeline before any code or file is created.
@@ -48,9 +71,25 @@ All specs live in `.specs/` (never inside `skills/` or `docs/`):
 
 ## Workflow
 
+- **Clarify before planning with `grill-with-docs`** whenever a request is medium-to-complex or ambiguous. It stress-tests the plan against the domain (`.specs/` + `CONCERNS.md`) and sharpens terminology before any file is written. Resolve ambiguity here, not mid-implementation.
 - When creating or improving a skill, follow the **skill-creator** workflow: Draft → Test → Review → Iterate → Optimize → Package. The full workflow is at `.agents/skills/skill-creator/SKILL.md`.
 - Never mark a task complete without verifying the skill works end-to-end (credentials present, script runs, output is correct).
 - If something is ambiguous (module name, field name, API shape), use `konecty-data` (modules subcommand) or `konecty-meta` (read subcommand) to discover before guessing.
+- **Completion gate — run before declaring a task done or opening a PR:** `make check` (offline syntax + shared-files guard) **and** `make audit`, which runs both audits:
+  - `bash .agents/skills/codebase-intelligence/scripts/audit.sh . --changed-since main` — code health: no new dead code, duplication, complexity, or boundary violations.
+  - `bash .agents/skills/codebase-security/scripts/audit.sh . --changed-since main` — security: no secrets, high-severity SAST findings, vulnerable/malicious deps, or exposed config. A `fail` verdict blocks the PR.
+
+### Available skills (`.agents/skills/`, tracked in `skills-lock.json`)
+
+| Skill | Use for |
+|-------|---------|
+| `tlc-spec-driven` | Spec → design → tasks → execute (mandatory pipeline) |
+| `skill-creator` | Authoring/optimizing a skill |
+| `grill-with-docs`, `grill-me` | Stress-testing a plan before building |
+| `codebase-intelligence`, `codebase-security` | The completion-gate audits |
+| `copywriting` | Marketplace listings, skill descriptions, README/landing copy |
+| `content-strategy` | Planning docs/blog/launch content for the skills |
+| `marketing-ideas`, `marketing-psychology` | Growth and positioning when promoting the skills |
 
 ## Repository
 
@@ -143,6 +182,10 @@ KONECTY_TOKEN=<authId>
 ```
 
 `konecty-data` (session subcommand) is the auth foundation — it performs the OTP two-phase flow (request-otp → verify-otp) and writes these files. `konecty-meta` reads them at startup and fails fast with a clear message when they are missing or the API returns 401.
+
+### Shared-files invariant — do NOT break
+
+`konecty-data` and `konecty-meta` each carry their own copy of the gated files listed in `shared-files.txt` (`scripts/auth.py`, `scripts/modules.py`, `references/auth.md`, `references/field-discovery.md`) so either skill installs standalone. **These copies MUST stay byte-identical across both skills.** Edit both sides together — never one alone. Divergence is enforced two ways and will block you: the `.githooks/pre-commit` guard (`make shared-check`) and the `check-shared-files` GitHub Action. If you add a new shared file, add its path to `shared-files.txt` in **both** skills.
 
 ### API surface
 

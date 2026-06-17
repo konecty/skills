@@ -6,6 +6,12 @@ __pycache__/
 *.py[cod]
 .venv/
 .python-version
+.coverage
+.coverage.*
+htmlcov/
+
+# Tooling caches
+.serena/
 
 # Editors
 .idea/
