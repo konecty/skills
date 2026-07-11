@@ -444,6 +444,22 @@ def _tool_query(host: str, token: str, args: argparse.Namespace) -> None:
     _adapt_mcp_query(result, args.output, include_total=args.include_total)
 
 
+def _tool_sql(host: str, token: str, args: argparse.Namespace) -> None:
+    """SQL search via the MCP ``query_sql`` tool.
+
+    Forwards the raw SQL plus ``--include-meta`` / ``--no-total`` and reuses
+    ``_adapt_mcp_query`` for the reconstructed ``_meta`` line (FMCP-14, FMCP-15).
+    """
+    arguments: dict = {"sql": args.sql}
+    if args.include_meta:
+        arguments["includeMeta"] = True
+    if not args.include_total:
+        arguments["includeTotal"] = False
+
+    result = mcp_client.call_tool(host, token, "query_sql", arguments)
+    _adapt_mcp_query(result, args.output, include_total=args.include_total)
+
+
 # ---------------------------------------------------------------------------
 # Subcommand entry points (MCP-first with REST fallback)
 # ---------------------------------------------------------------------------
@@ -466,8 +482,11 @@ def cmd_query(host: str, token: str, args: argparse.Namespace) -> None:
 
 
 def cmd_sql(host: str, token: str, args: argparse.Namespace) -> None:
-    """Entry point for `sql` — currently the REST path (MCP wiring lands in T8)."""
-    _rest_sql(host, token, args)
+    """`sql` — MCP ``query_sql`` first, REST ``/rest/query/sql`` fallback."""
+    _dispatch(
+        lambda: _tool_sql(host, token, args),
+        lambda: _rest_sql(host, token, args),
+    )
 
 
 def main() -> None:

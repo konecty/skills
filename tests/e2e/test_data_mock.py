@@ -1128,3 +1128,70 @@ class TestQueryViaMcp:
         assert r.ok, r.stderr
         assert len(json.loads(r.stdout)) == 2  # REST still returns records
         assert "Busca feita via API direta (REST)." in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# find.py — `sql` routed through MCP query_sql (T8)
+# ---------------------------------------------------------------------------
+
+
+class TestSqlViaMcp:
+    """`sql` over the MCP query_sql tool, reusing the query _meta adapter.
+
+    Requirements: FMCP-14 (query_sql + fallback), FMCP-15 (_meta reconstruction).
+    """
+
+    def test_sql_uses_mcp_when_enabled(self, agent, mock_konecty, monkeypatch):
+        """FMCP-14: with MCP up, `sql` is served by query_sql (REST path broken)."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+
+        def boom(*a, **k):
+            from e2e.mock_konecty import _err
+            raise _err(500, "REST sql must not be called when MCP succeeds")
+
+        mock_konecty._handle_query_sql = boom  # break REST so success ⇒ MCP served it
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["sql", "SELECT * FROM Contact"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        rows = json.loads(r.stdout)
+        assert len(rows) == 2
+        assert "Busca feita via API direta" not in r.stderr  # happy path silent
+
+    def test_sql_mcp_rest_output_parity(self, agent, mock_konecty, monkeypatch):
+        """FMCP-14/15: MCP-path stdout + total line is byte-identical to REST."""
+        with mock_konecty.patch():
+            monkeypatch.delenv("KONECTY_MCP", raising=False)
+            r_mcp = agent.run("konecty-data", "find",
+                              ["sql", "SELECT * FROM Contact"], host=HOST, token=TOKEN)
+            monkeypatch.setenv("KONECTY_MCP", "0")
+            r_rest = agent.run("konecty-data", "find",
+                               ["sql", "SELECT * FROM Contact"], host=HOST, token=TOKEN)
+        assert r_mcp.ok and r_rest.ok, (r_mcp.stderr, r_rest.stderr)
+        assert r_mcp.stdout == r_rest.stdout
+        assert "# Total: 2  Returned: 2" in r_mcp.stderr
+        assert "# Total: 2  Returned: 2" in r_rest.stderr
+
+    def test_sql_ndjson_via_mcp(self, agent, mock_konecty, monkeypatch):
+        """FMCP-14: --output ndjson still works over the MCP sql path."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["--output", "ndjson", "sql", "SELECT * FROM Contact"],
+                          host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        lines = [l for l in r.stdout.strip().splitlines() if l.strip()]
+        assert len(lines) == 2
+        for line in lines:
+            json.loads(line)
+
+    def test_sql_mcp_403_falls_back_with_notice(self, agent, mock_konecty, monkeypatch):
+        """FMCP-14: MCP 403 → rows via /rest/query/sql fallback + notice first."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        mock_konecty.mcp_fault = 403
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["sql", "SELECT * FROM Contact"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        assert len(json.loads(r.stdout)) == 2  # REST still returns records
+        assert "Busca feita via API direta (REST)." in r.stderr
