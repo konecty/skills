@@ -1,5 +1,7 @@
 # Development & contributing
 
+> For the full project overview, see [README.md](../README.md) (pt-BR) or [README.en.md](../README.en.md) (English).
+
 ## Adding a new skill
 
 1. Create a new folder under `skills/` with a short, lowercase name (e.g. `skills/my-new-skill/`).

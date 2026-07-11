@@ -1,0 +1,112 @@
+name: konecty-skills-e2e
+
+# Isolated, disposable Konecty stack for the skills end-to-end harness.
+# Mirrors the company-brain reference (mongo replica set + mongodb-init +
+# rabbitmq + the konecty/konecty image) but runs on ALTERNATE ports so it can
+# coexist with a dev Konecty already bound to :3000. `docker compose down -v`
+# drops the volumes so every round starts from a clean database (and a fresh
+# admin password in the konecty logs).
+#
+#   docker compose -f e2e/docker-compose.yml up -d
+#   docker compose -f e2e/docker-compose.yml down -v   # clean reset
+
+services:
+  mongodb:
+    image: mongo:8.2
+    container_name: konecty-e2e-mongodb
+    restart: unless-stopped
+    command: mongod --bind_ip_all --replSet rs0
+    volumes:
+      - mongodb-data:/data/db
+    ports:
+      - "${E2E_MONGO_PORT:-27117}:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [e2e-network]
+
+  mongodb-init:
+    image: mongo:8.2
+    container_name: konecty-e2e-mongodb-init
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -c
+      - |
+        until mongosh --host mongodb:27017 --eval 'db.adminCommand("ping")' >/dev/null 2>&1; do sleep 2; done;
+        if ! mongosh --host mongodb:27017 --eval 'rs.status()' 2>/dev/null | grep -q 'set: .rs0.'; then
+          echo 'Initiating replica set';
+          mongosh --host mongodb:27017 --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"mongodb:27017"}]})';
+        else
+          echo 'Replica set already initialized';
+        fi
+    networks: [e2e-network]
+
+  rabbitmq:
+    image: rabbitmq:4.1.0-management-alpine
+    container_name: konecty-e2e-rabbitmq
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-admin}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-admin}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [e2e-network]
+
+  konecty:
+    image: konecty/konecty:${KONECTY_IMAGE_TAG:-3.8.10}
+    container_name: konecty-e2e-konecty
+    restart: unless-stopped
+    depends_on:
+      mongodb-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - PORT=3000
+      - KONECTY_MODE=development
+      # NODE_ENV=production makes the built image resolve metadata at
+      # /app/private/metadata (the 21 shipped seed docs); dev mode looks for a
+      # src/ path that doesn't exist in the compiled image.
+      - NODE_ENV=production
+      - COOKIES_SECRET=${E2E_COOKIES_SECRET:-e2e-cookies-secret-not-for-production}
+      - KONMETA_NAMESPACE=${E2E_NAMESPACE:-e2e}
+      - MONGO_URL=mongodb://mongodb:27017/${E2E_NAMESPACE:-e2e}?directConnection=true
+      - DISABLE_REINDEX=true
+      - DISABLE_TELEMETRY_LOGS=true
+      - DISABLE_SENDMAIL=true
+      - OTP_EMAIL_ENABLED=true
+      - DEFAULT_LOCALE=pt_BR
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000|http://localhost:5173
+      - UI_PROXY=false
+      - BODY_LIMIT=10485760
+    ports:
+      - "${E2E_KONECTY_PORT:-3100}:3000"
+    healthcheck:
+      # the konecty image ships wget (no curl); 127.0.0.1 avoids IPv6 ::1
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/liveness"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks: [e2e-network]
+
+volumes:
+  mongodb-data:
+  rabbitmq-data:
+
+networks:
+  e2e-network:
+    driver: bridge

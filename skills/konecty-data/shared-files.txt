@@ -1,0 +1,4 @@
+scripts/auth.py
+scripts/modules.py
+references/auth.md
+references/field-discovery.md

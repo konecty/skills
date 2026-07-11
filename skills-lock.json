@@ -1,6 +1,18 @@
 {
   "version": 1,
   "skills": {
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "784f0dbb7403b0f00324bce9a112f715342777a0daee7bbb7385f9c6f0a170ea"
+    },
+    "grill-with-docs": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/grill-with-docs/SKILL.md",
+      "computedHash": "a5c65e76275008b469962f7bee8b34866f1c9b0709f4886e71c8e731735640e4"
+    },
     "skill-creator": {
       "source": "anthropics/skills",
       "sourceType": "github",
@@ -12,6 +24,42 @@
       "sourceType": "github",
       "skillPath": "packages/skills-catalog/skills/(development)/tlc-spec-driven/SKILL.md",
       "computedHash": "e43524680b1d22ae7ef160c0bd40902cb995f3048f96535e8b39ce3347042b23"
+    },
+    "copywriting": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/copywriting/SKILL.md",
+      "computedHash": "c8d63b1f77be04fd54981720de65697988810bd28331097dbe0aaf3e166d638a"
+    },
+    "content-strategy": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/content-strategy/SKILL.md",
+      "computedHash": "13824c129ab70874c57d766c2d844f8dac7a0b366845f108a73527c9d094c4f6"
+    },
+    "marketing-ideas": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/marketing-ideas/SKILL.md",
+      "computedHash": "c2a310c97126a0c493bae2b4b0e9fa767598bb2d139a747217fa1d8d7615e85d"
+    },
+    "marketing-psychology": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/marketing-psychology/SKILL.md",
+      "computedHash": "50d735eb0f5c36f379ed2200f21aeacc9b9ad85667b5d33ec6111857352a1340"
+    },
+    "codebase-intelligence": {
+      "source": "vendored",
+      "sourceType": "local",
+      "skillPath": ".agents/skills/codebase-intelligence/SKILL.md",
+      "computedHash": "57c4fd4a3f2c309e9bbd85c3586107cd85f5610f7de95be827cb2302b81cc182"
+    },
+    "codebase-security": {
+      "source": "vendored",
+      "sourceType": "local",
+      "skillPath": ".agents/skills/codebase-security/SKILL.md",
+      "computedHash": "10c79180df05c455c9b20347a920835e9a645605e8889c7b2effd96030283f16"
     }
   }
 }

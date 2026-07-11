@@ -1,0 +1,90 @@
+{
+	"_id": "E2ESync",
+	"type": "document",
+	"name": "E2ESync",
+	"label": {
+		"en": "E2E Sync Test",
+		"pt_BR": "Teste Sync E2E"
+	},
+	"plurals": {
+		"en": "E2E Sync Tests",
+		"pt_BR": "Testes Sync E2E"
+	},
+	"icon": "tag",
+	"saveHistory": false,
+	"fields": {
+		"code": {
+			"name": "code",
+			"type": "autoNumber",
+			"label": {
+				"en": "Code",
+				"pt_BR": "Código"
+			},
+			"isUnique": true,
+			"isSortable": true
+		},
+		"title": {
+			"name": "title",
+			"type": "text",
+			"label": {
+				"en": "Title",
+				"pt_BR": "Título"
+			},
+			"isRequired": true,
+			"isSortable": true
+		},
+		"status": {
+			"name": "status",
+			"type": "picklist",
+			"label": {
+				"en": "Status",
+				"pt_BR": "Situação"
+			},
+			"options": {
+				"active": {
+					"en": "Active",
+					"pt_BR": "Ativo"
+				},
+				"inactive": {
+					"en": "Inactive",
+					"pt_BR": "Inativo"
+				}
+			},
+			"optionsSorter": "asc",
+			"maxSelected": 1,
+			"minSelected": 1,
+			"defaultValue": "active",
+			"isSortable": true
+		},
+		"_createdAt": {
+			"name": "_createdAt",
+			"type": "dateTime",
+			"label": {
+				"en": "Created At",
+				"pt_BR": "Criado em"
+			},
+			"isSortable": true
+		},
+		"_updatedAt": {
+			"name": "_updatedAt",
+			"type": "dateTime",
+			"label": {
+				"en": "Updated At",
+				"pt_BR": "Atualizado em"
+			},
+			"isSortable": true
+		},
+		"_user": {
+			"name": "_user",
+			"type": "lookup",
+			"label": {
+				"en": "User",
+				"pt_BR": "Usuário"
+			},
+			"document": "User",
+			"descriptionFields": ["name", "group.name"],
+			"isList": true,
+			"isSortable": true
+		}
+	}
+}

@@ -1,0 +1,35 @@
+{
+	"_id": "E2ESync:access:Default",
+	"type": "access",
+	"name": "Default",
+	"document": "E2ESync",
+	"label": {
+		"en": "Default",
+		"pt_BR": "Default"
+	},
+	"isCreatable": true,
+	"isReadable": true,
+	"isUpdatable": true,
+	"isDeletable": false,
+	"fieldDefaults": {
+		"isCreatable": true,
+		"isReadable": true,
+		"isUpdatable": true,
+		"isDeletable": false
+	},
+	"fields": {},
+	"readFilter": {
+		"match": "or",
+		"conditions": [
+			{
+				"term": "_user._id",
+				"operator": "equals",
+				"value": "$user"
+			}
+		]
+	},
+	"export": {
+		"html": ["list", "view"],
+		"pdf": ["list", "view"]
+	}
+}
