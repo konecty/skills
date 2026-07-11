@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "promote_threshold": 2,
+  "window_days": 45,
+  "quarantine_threshold": 2,
+  "next_id": 2,
+  "lessons": [
+    {
+      "id": "L-001",
+      "key": "spec_precision_gap::when enforcement lives server side e g konfilter normalizekonectyfilter rejecting mongo shaped input do not write an ac claiming the skill rejects it locally the skill only catches malformed json locally and forwards valid json but wrong shape to be surfaced as a server tool validation error state where each validation actually happens",
+      "text": "When enforcement lives server-side (e.g. KonFilter/normalizeKonectyFilter rejecting Mongo-shaped input), do not write an AC claiming the SKILL rejects it 'locally': the skill only catches malformed JSON locally and forwards valid-JSON-but-wrong-shape to be surfaced as a server tool-validation error. State where each validation actually happens.",
+      "signal": "spec_precision_gap",
+      "scope": "konecty-data/spec-authoring",
+      "status": "candidate",
+      "features": [
+        "find-via-mcp"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "spec.md FMCP-02 + Edge case (sort) (konecty-data/spec-authoring)"
+      ],
+      "created": "2026-07-11T16:42:12Z",
+      "last_seen": "2026-07-11T16:42:12Z"
+    }
+  ]
+}

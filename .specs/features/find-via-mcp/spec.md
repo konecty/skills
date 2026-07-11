@@ -78,8 +78,11 @@ output contract all exercised by one command.
    `records_find` tool over `POST /mcp` and print the returned records array to stdout as the current
    command does (pretty JSON by default, NDJSON with `--output ndjson`).
 2. WHEN a `--filter` is supplied THEN the skill SHALL send it to `records_find` as a canonical
-   `KonFilter` object (`{match, conditions[], textSearch?}`) and SHALL reject a malformed/Mongo-style
-   filter locally with a clear error before any network call.
+   `KonFilter` object (`{match, conditions[], textSearch?}`), passing it through unchanged.
+   WHEN the `--filter` value is **not valid JSON** THEN the skill SHALL reject it locally with a clear
+   error before any network call. (A *valid-JSON but Mongo-shaped* filter is forwarded and rejected
+   **server-side** by `normalizeKonectyFilter` — surfaced as a tool-validation error, no REST fallback;
+   the skill does not attempt to detect Mongo shape locally.)
 3. WHEN the MCP request carries the auth token THEN it SHALL be sent as
    `Authorization: Bearer <KONECTY_TOKEN>`.
 4. WHEN `records_find` returns THEN the skill SHALL print `# Total: N  Returned: M` to **stderr**
@@ -215,8 +218,10 @@ Out of Scope table.
   `records_find` returns `buildInvalidDocumentError`; the skill SHALL surface that (a **tool validation
   error → no fallback**, per the matrix — a bad identifier must not be masked by REST). Note: the module
   *name* the skill passes today (`Contact`) IS the accepted identifier on both paths — verified identical.
-- WHEN `--sort` uses Mongo-style (`{field:-1}`) THEN the skill SHALL normalize it to
-  `{property, direction:UPPER}` before sending (MCP rejects Mongo-style sort); `_parse_sort` already does this.
+- WHEN `--sort` uses the CLI shorthand (`field:asc,other:desc`) THEN `_parse_sort` normalizes it to
+  `{property, direction:UPPER}` before sending. A raw Mongo-style JSON sort (`{"field":-1}`) is **not**
+  normalized locally — it is forwarded and rejected server-side (surfaced, safe). Local Mongo-sort
+  detection is intentionally out of scope.
 - WHEN the MCP rate limit (`429`) is hit THEN the skill SHALL fall back to REST **and disable MCP for the
   rest of the process** (see P1 fallback AC-4).
 - WHEN `--filter` has `filters` nested 2+ levels THEN the skill SHALL send it to MCP unchanged; the MCP may
