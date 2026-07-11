@@ -20,6 +20,8 @@ Stdlib only: ``json``, ``urllib``.
 from __future__ import annotations
 
 import json
+import urllib.error
+import urllib.request
 from typing import Any
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
@@ -104,3 +106,130 @@ def parse_sse(body: bytes) -> list[dict]:
             raise McpTransportError(f"malformed SSE data frame: {exc}")
 
     return messages
+
+
+# ---------------------------------------------------------------------------
+# tools/call over stateless Streamable HTTP
+# ---------------------------------------------------------------------------
+
+
+def _messages_from_body(raw: bytes, content_type: str) -> list[dict]:
+    """Turn a raw response body into JSON-RPC messages.
+
+    SSE (``text/event-stream``) is the Konecty default. A plain ``application/
+    json`` body is also accepted (defensive, for a future JSON-mode server); an
+    absent/ambiguous content-type is probed as JSON first, then SSE.
+    """
+    ct = (content_type or "").lower()
+    if "text/event-stream" in ct:
+        return parse_sse(raw)
+
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        # Not plain JSON — fall back to SSE parsing (which raises on garbage).
+        return parse_sse(raw)
+    return parsed if isinstance(parsed, list) else [parsed]
+
+
+def _first_text(result: dict) -> str:
+    """Extract the first ``content[].text`` block from a tool result, if any."""
+    content = result.get("content")
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                return str(block.get("text", ""))
+    return ""
+
+
+def _result_from_messages(messages: list) -> dict:
+    """Locate the JSON-RPC reply (id==1) and return its tool ``result``.
+
+    Raises :class:`McpToolError` on a JSON-RPC ``error`` or ``result.isError``;
+    :class:`McpTransportError` when no reply message is present.
+    """
+    hit = None
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("id") == 1 and ("result" in msg or "error" in msg):
+            hit = msg
+            break
+    if hit is None:
+        for msg in messages:
+            if isinstance(msg, dict) and ("result" in msg or "error" in msg):
+                hit = msg
+                break
+    if hit is None:
+        raise McpTransportError("no JSON-RPC response message found in reply")
+
+    if "error" in hit:
+        err = hit.get("error") or {}
+        raise McpToolError(
+            err.get("code"), err.get("message", "unknown MCP error"), err.get("data")
+        )
+
+    result = hit.get("result")
+    if isinstance(result, dict) and result.get("isError"):
+        raise McpToolError("TOOL_ERROR", _first_text(result) or "tool returned isError", result)
+    return result if isinstance(result, dict) else {}
+
+
+def call_tool(
+    base_url: str,
+    token: str,
+    name: str,
+    arguments: dict | None = None,
+    *,
+    timeout: int = 30,
+) -> dict:
+    """Call an MCP tool over ``POST {base_url}/mcp`` and return its ``result``.
+
+    Sends a bare JSON-RPC 2.0 ``tools/call`` (no ``initialize`` handshake) with
+    ``Accept: application/json, text/event-stream`` (both required), a Bearer
+    header, and ``authTokenId`` in the tool arguments (server prefers the arg).
+
+    Raises :class:`McpHttpError` (non-2xx, carries ``.status``),
+    :class:`McpTransportError` (connection/timeout/DNS/malformed-SSE), or
+    :class:`McpToolError` (JSON-RPC ``error`` / ``result.isError``).
+    """
+    url = base_url.rstrip("/") + "/mcp"
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": name,
+            "arguments": {**(arguments or {}), "authTokenId": token},
+        },
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            content_type = resp.headers.get("Content-Type", "")
+    except urllib.error.HTTPError as exc:
+        try:
+            err_body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            err_body = ""
+        raise McpHttpError(exc.code, err_body)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise McpTransportError(f"transport failure: {exc}")
+
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8")
+    messages = _messages_from_body(raw, content_type)
+    return _result_from_messages(messages)

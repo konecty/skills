@@ -13,11 +13,15 @@ Layers under test:
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import urllib.error
+import urllib.request
 
 import pytest
 
 from e2e.agent import PseudoAgent
+from e2e.mock_konecty import _FakeResponse, _err
 
 pytestmark = pytest.mark.mock
 
@@ -47,6 +51,21 @@ def _sse_frame(payload: dict, event: str | None = "message") -> str:
 
 def _rpc_result(result: dict, rpc_id: int = 1) -> dict:
     return {"jsonrpc": "2.0", "id": rpc_id, "result": result}
+
+
+@contextlib.contextmanager
+def _patched_urlopen(handler):
+    """Temporarily replace ``urllib.request.urlopen`` with *handler*.
+
+    ``handler(req)`` must return a response object (or raise). ``mcp_client``
+    resolves ``urllib.request.urlopen`` at call time, so this intercepts it.
+    """
+    original = urllib.request.urlopen
+    urllib.request.urlopen = handler  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        urllib.request.urlopen = original  # type: ignore[assignment]
 
 
 # ===========================================================================
@@ -141,3 +160,187 @@ class TestErrorClasses:
         err = m.McpTransportError("connection reset")
         assert isinstance(err, Exception)
         assert "connection reset" in str(err)
+
+
+# ===========================================================================
+# T2 — call_tool
+# ===========================================================================
+
+
+class TestCallToolRequest:
+    def test_request_envelope_headers_and_body(self):
+        """Envelope carries both Accept types, Bearer header, and authTokenId arg."""
+        m = mcp()
+        captured = {}
+
+        def handler(req, *a, **k):
+            captured["req"] = req
+            sse = _sse_frame(_rpc_result({"structuredContent": {"records": [], "total": 0}}))
+            return _FakeResponse(sse.encode("utf-8"), 200, "text/event-stream")
+
+        with _patched_urlopen(handler):
+            m.call_tool("http://konecty.example", "tok-123", "records_find",
+                        {"document": "Contact", "limit": 50})
+
+        req = captured["req"]
+        assert req.full_url == "http://konecty.example/mcp"
+        assert req.get_method() == "POST"
+        # Both Accept media types required (406 otherwise).
+        accept = req.get_header("Accept")
+        assert "application/json" in accept and "text/event-stream" in accept
+        # Bearer auth header.
+        assert req.get_header("Authorization") == "Bearer tok-123"
+        # Content-Type must be application/json (415 otherwise).
+        assert req.get_header("Content-type") == "application/json"
+
+        sent = json.loads(req.data)
+        assert sent["jsonrpc"] == "2.0"
+        assert sent["id"] == 1
+        assert sent["method"] == "tools/call"
+        assert sent["params"]["name"] == "records_find"
+        args = sent["params"]["arguments"]
+        assert args["document"] == "Contact"
+        assert args["limit"] == 50
+        # Token echoed in the arguments (server prefers the arg).
+        assert args["authTokenId"] == "tok-123"
+
+    def test_trailing_slash_base_url_normalised(self):
+        """A base_url with a trailing slash still targets exactly ``/mcp``."""
+        m = mcp()
+        captured = {}
+
+        def handler(req, *a, **k):
+            captured["req"] = req
+            sse = _sse_frame(_rpc_result({"structuredContent": {"records": [], "total": 0}}))
+            return _FakeResponse(sse.encode("utf-8"), 200, "text/event-stream")
+
+        with _patched_urlopen(handler):
+            m.call_tool("http://konecty.example/", "t", "records_find", {})
+
+        assert captured["req"].full_url == "http://konecty.example/mcp"
+
+
+class TestCallToolResponse:
+    _RESULT = {
+        "content": [{"type": "text", "text": "ok"}],
+        "structuredContent": {
+            "records": [{"_id": "cid001", "name": "Alice"}],
+            "total": 1,
+            "pagination": {"start": 0, "limit": 50, "returned": 1, "total": 1, "hasMore": False},
+        },
+    }
+
+    def test_sse_result_extracted(self):
+        """A 200 SSE reply yields the tool result object."""
+        m = mcp()
+        sse = _sse_frame(_rpc_result(self._RESULT))
+
+        def handler(req, *a, **k):
+            return _FakeResponse(sse.encode("utf-8"), 200, "text/event-stream")
+
+        with _patched_urlopen(handler):
+            result = m.call_tool("http://x", "t", "records_find", {"document": "Contact"})
+
+        assert result["structuredContent"]["total"] == 1
+        assert result["structuredContent"]["records"][0]["_id"] == "cid001"
+
+    def test_json_result_extracted_defensively(self):
+        """A 200 plain application/json reply yields the SAME result object."""
+        m = mcp()
+        body = json.dumps(_rpc_result(self._RESULT)).encode("utf-8")
+
+        def handler(req, *a, **k):
+            return _FakeResponse(body, 200, "application/json")
+
+        with _patched_urlopen(handler):
+            result = m.call_tool("http://x", "t", "records_find", {"document": "Contact"})
+
+        assert result["structuredContent"]["records"][0]["_id"] == "cid001"
+
+    def test_sse_and_json_yield_identical_result(self):
+        """SSE-mode and JSON-mode extraction produce byte-identical results."""
+        m = mcp()
+        sse = _sse_frame(_rpc_result(self._RESULT)).encode("utf-8")
+        js = json.dumps(_rpc_result(self._RESULT)).encode("utf-8")
+
+        with _patched_urlopen(lambda req, *a, **k: _FakeResponse(sse, 200, "text/event-stream")):
+            r_sse = m.call_tool("http://x", "t", "records_find", {})
+        with _patched_urlopen(lambda req, *a, **k: _FakeResponse(js, 200, "application/json")):
+            r_json = m.call_tool("http://x", "t", "records_find", {})
+
+        assert r_sse == r_json
+
+
+class TestCallToolErrors:
+    def test_jsonrpc_error_raises_tool_error(self):
+        """A 200 reply carrying a JSON-RPC ``error`` raises McpToolError (no fallback)."""
+        m = mcp()
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32602, "message": "invalid document", "data": {"document": "Contato"}},
+        }
+        sse = _sse_frame(payload).encode("utf-8")
+
+        with _patched_urlopen(lambda req, *a, **k: _FakeResponse(sse, 200, "text/event-stream")):
+            with pytest.raises(m.McpToolError) as ei:
+                m.call_tool("http://x", "t", "records_find", {"document": "Contato"})
+        assert ei.value.code == -32602
+        assert "invalid document" in ei.value.message
+
+    def test_result_iserror_raises_tool_error(self):
+        """A 200 reply whose ``result.isError`` is true raises McpToolError."""
+        m = mcp()
+        result = {
+            "content": [{"type": "text", "text": "VALIDATION_ERROR: bad filter"}],
+            "isError": True,
+        }
+        sse = _sse_frame(_rpc_result(result)).encode("utf-8")
+
+        with _patched_urlopen(lambda req, *a, **k: _FakeResponse(sse, 200, "text/event-stream")):
+            with pytest.raises(m.McpToolError) as ei:
+                m.call_tool("http://x", "t", "records_find", {})
+        assert "VALIDATION_ERROR" in str(ei.value)
+
+    def test_non_2xx_raises_http_error_with_status(self):
+        """A non-2xx HTTP response raises McpHttpError carrying ``.status``."""
+        m = mcp()
+
+        def handler(req, *a, **k):
+            raise _err(403, "mcp_access_denied")
+
+        with _patched_urlopen(handler):
+            with pytest.raises(m.McpHttpError) as ei:
+                m.call_tool("http://x", "t", "records_find", {})
+        assert ei.value.status == 403
+
+    def test_url_error_raises_transport_error(self):
+        """A connection/DNS failure (URLError) raises McpTransportError."""
+        m = mcp()
+
+        def handler(req, *a, **k):
+            raise urllib.error.URLError("Name or service not known")
+
+        with _patched_urlopen(handler):
+            with pytest.raises(m.McpTransportError):
+                m.call_tool("http://x", "t", "records_find", {})
+
+    def test_timeout_raises_transport_error(self):
+        """A read timeout (TimeoutError) raises McpTransportError."""
+        m = mcp()
+
+        def handler(req, *a, **k):
+            raise TimeoutError("timed out")
+
+        with _patched_urlopen(handler):
+            with pytest.raises(m.McpTransportError):
+                m.call_tool("http://x", "t", "records_find", {})
+
+    def test_malformed_sse_raises_transport_error(self):
+        """A 200 reply with a malformed SSE body raises McpTransportError → fallback."""
+        m = mcp()
+        bad = b"event: message\ndata: {broken json,,\n\n"
+
+        with _patched_urlopen(lambda req, *a, **k: _FakeResponse(bad, 200, "text/event-stream")):
+            with pytest.raises(m.McpTransportError):
+                m.call_tool("http://x", "t", "records_find", {})
