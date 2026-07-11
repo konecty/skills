@@ -21,7 +21,7 @@ import urllib.request
 import pytest
 
 from e2e.agent import PseudoAgent
-from e2e.mock_konecty import _FakeResponse, _err
+from e2e.mock_konecty import MockKonecty, _FakeResponse, _err
 
 pytestmark = pytest.mark.mock
 
@@ -344,3 +344,91 @@ class TestCallToolErrors:
         with _patched_urlopen(lambda req, *a, **k: _FakeResponse(bad, 200, "text/event-stream")):
             with pytest.raises(m.McpTransportError):
                 m.call_tool("http://x", "t", "records_find", {})
+
+
+# ===========================================================================
+# T3 — MockKonecty /mcp route smoke tests (client + mock integration)
+# ===========================================================================
+
+
+class TestMockMcpRoute:
+    def test_records_find_sse_route(self):
+        """POST /mcp records_find over the mock returns filtered structuredContent."""
+        m = mcp()
+        mk = MockKonecty()
+        fil = {"match": "and", "conditions": [{"term": "_id", "operator": "equals", "value": "cid001"}]}
+        with mk.patch():
+            result = m.call_tool("http://mock.local", "t", "records_find",
+                                 {"document": "Contact", "filter": fil})
+        sc = result["structuredContent"]
+        assert sc["total"] == 1
+        assert sc["records"][0]["_id"] == "cid001"
+        assert "pagination" in sc
+
+    def test_query_json_sse_route(self):
+        """POST /mcp query_json returns structuredContent {records, meta, total}."""
+        m = mcp()
+        mk = MockKonecty()
+        with mk.patch():
+            result = m.call_tool("http://mock.local", "t", "query_json", {"document": "Contact"})
+        sc = result["structuredContent"]
+        assert sc["total"] == 2
+        assert sc["meta"]["document"] == "Contact"
+        assert len(sc["records"]) == 2
+
+    def test_query_sql_sse_route(self):
+        """POST /mcp query_sql returns the 2-row Contact stub with meta."""
+        m = mcp()
+        mk = MockKonecty()
+        with mk.patch():
+            result = m.call_tool("http://mock.local", "t", "query_sql",
+                                 {"sql": "SELECT * FROM Contact"})
+        sc = result["structuredContent"]
+        assert len(sc["records"]) == 2
+        assert "meta" in sc
+
+    @pytest.mark.parametrize("status", [403, 404, 429, 500])
+    def test_fault_status_raises_http_error(self, status):
+        """mcp_fault = <status> makes the route raise that HTTP status → McpHttpError."""
+        m = mcp()
+        mk = MockKonecty()
+        mk.mcp_fault = status
+        with mk.patch():
+            with pytest.raises(m.McpHttpError) as ei:
+                m.call_tool("http://mock.local", "t", "records_find", {"document": "Contact"})
+        assert ei.value.status == status
+
+    def test_fault_urlerror_raises_transport_error(self):
+        m = mcp()
+        mk = MockKonecty()
+        mk.mcp_fault = "urlerror"
+        with mk.patch():
+            with pytest.raises(m.McpTransportError):
+                m.call_tool("http://mock.local", "t", "records_find", {"document": "Contact"})
+
+    def test_fault_badsse_raises_transport_error(self):
+        m = mcp()
+        mk = MockKonecty()
+        mk.mcp_fault = "badsse"
+        with mk.patch():
+            with pytest.raises(m.McpTransportError):
+                m.call_tool("http://mock.local", "t", "records_find", {"document": "Contact"})
+
+    def test_fault_toolerror_raises_tool_error(self):
+        m = mcp()
+        mk = MockKonecty()
+        mk.mcp_fault = "toolerror"
+        with mk.patch():
+            with pytest.raises(m.McpToolError):
+                m.call_tool("http://mock.local", "t", "records_find", {"document": "Contact"})
+
+    @pytest.mark.parametrize("method", ["GET", "DELETE"])
+    def test_non_post_methods_405(self, method):
+        """GET/DELETE /mcp → 405 (McpHttpError on the client side)."""
+        m = mcp()
+        mk = MockKonecty()
+        with mk.patch():
+            req = urllib.request.Request("http://mock.local/mcp", method=method)
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(req)
+        assert ei.value.code == 405

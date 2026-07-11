@@ -380,6 +380,10 @@ class MockKonecty:
         if raw_path.startswith("/rest/file/"):
             return self._route_file(method, raw_path, req)
 
+        # /mcp  (User MCP — stateless Streamable HTTP, SSE responses)
+        if raw_path == "/mcp":
+            return self._route_mcp(method, req)
+
         raise _err(404, f"Path not routed by mock: {raw_path}")
 
     # ------------------------------------------------------------------
@@ -1177,6 +1181,161 @@ class MockKonecty:
         → {"success": true}
         """
         return _json_response({"success": True})
+
+    # ==================================================================
+    # MCP route  /mcp  (User MCP — stateless Streamable HTTP, SSE)
+    # ==================================================================
+
+    def _route_mcp(self, method: str, req: Any) -> _FakeResponse:
+        """
+        POST /mcp — JSON-RPC 2.0 ``tools/call``; SSE (``text/event-stream``) reply
+        wrapping the tool ``result`` (``structuredContent`` + ``content``).
+
+        Fault injection (drives the dispatcher's REST-fallback matrix): set
+        ``mock_konecty.mcp_fault`` to one of:
+          - ``403`` / ``404`` / ``429`` / ``500`` (int) → raises that HTTP status,
+          - ``"urlerror"``  → raises ``urllib.error.URLError`` (connection failure),
+          - ``"badsse"``    → returns a 200 with a malformed SSE body,
+          - ``"toolerror"`` → returns a 200 SSE whose ``result.isError`` is true.
+        GET/DELETE /mcp → 405.
+        """
+        if method != "POST":
+            raise _err(405, f"Method {method} not allowed on /mcp")
+
+        fault = getattr(self, "mcp_fault", None)
+        if fault is not None:
+            return self._mcp_apply_fault(fault)
+
+        body = self._parse_body(req)
+        if not isinstance(body, dict):
+            raise _err(400, "MCP body must be a JSON object")
+
+        params = body.get("params", {}) or {}
+        name = params.get("name")
+        arguments = params.get("arguments", {}) or {}
+
+        if name == "records_find":
+            result = self._mcp_records_find(arguments)
+        elif name == "query_json":
+            result = self._mcp_query_json(arguments)
+        elif name == "query_sql":
+            result = self._mcp_query_sql(arguments)
+        else:
+            result = {
+                "content": [{"type": "text", "text": f"unknown tool: {name}"}],
+                "isError": True,
+            }
+        return self._mcp_sse(result)
+
+    @staticmethod
+    def _mcp_apply_fault(fault: Any) -> _FakeResponse:
+        """Translate a configured ``mcp_fault`` into the matching failure."""
+        if fault == "urlerror":
+            raise urllib.error.URLError("mock MCP connection refused")
+        if fault == "badsse":
+            return _FakeResponse(
+                b"event: message\ndata: {broken json,,\n\n", 200, "text/event-stream"
+            )
+        if fault == "toolerror":
+            result = {
+                "content": [{"type": "text", "text": "VALIDATION_ERROR: bad filter"}],
+                "isError": True,
+            }
+            return MockKonecty._mcp_sse(result)
+        if isinstance(fault, int):
+            raise _err(fault, f"mcp fault {fault}")
+        raise _err(500, f"unknown mcp fault: {fault}")
+
+    @staticmethod
+    def _mcp_sse(result: dict) -> _FakeResponse:
+        """Wrap a tool ``result`` in a single SSE frame carrying the JSON-RPC reply."""
+        msg = {"jsonrpc": "2.0", "id": 1, "result": result}
+        body = ("event: message\ndata: " + json.dumps(msg, ensure_ascii=False) + "\n\n").encode(
+            "utf-8"
+        )
+        return _FakeResponse(body, 200, "text/event-stream")
+
+    def _mcp_records_find(self, arguments: dict) -> dict:
+        """records_find → structuredContent {records, total, pagination}."""
+        document = arguments.get("document", "")
+        fil = arguments.get("filter")
+        fields_str = arguments.get("fields")
+        limit = arguments.get("limit", 50)
+        start = arguments.get("start", 0)
+
+        doc_records = self.records.get(document, {})
+        matched = [
+            _project(r, fields_str)
+            for r in doc_records.values()
+            if _match_filter(r, fil)
+        ]
+        total = len(matched)
+        if limit == -1:
+            page = matched[start:]
+        else:
+            page = matched[start: start + limit]
+        returned = len(page)
+        has_more = (start + returned) < total if limit != -1 else False
+        pagination = {
+            "start": start,
+            "limit": limit,
+            "returned": returned,
+            "total": total,
+            "hasMore": has_more,
+            "nextStart": (start + returned) if has_more else None,
+        }
+        structured = {"records": page, "total": total, "pagination": pagination}
+        return {
+            "content": [{"type": "text", "text": json.dumps(structured, ensure_ascii=False)}],
+            "structuredContent": structured,
+        }
+
+    def _mcp_query_json(self, arguments: dict) -> dict:
+        """query_json → structuredContent {records, meta, total}."""
+        document = arguments.get("document", "")
+        fil = arguments.get("filter")
+        fields_str = arguments.get("fields")
+        limit = arguments.get("limit", 1000)
+        start = arguments.get("start", 0)
+
+        doc_records = self.records.get(document, {})
+        matched = [
+            _project(r, fields_str)
+            for r in doc_records.values()
+            if _match_filter(r, fil)
+        ]
+        total = len(matched)
+        if limit == -1:
+            page = matched[start:]
+        else:
+            page = matched[start: start + limit]
+        meta = {
+            "document": document,
+            "relations": arguments.get("relations", []),
+            "warnings": [],
+            "executionTimeMs": 1,
+        }
+        structured = {"records": page, "meta": meta, "total": total}
+        return {
+            "content": [{"type": "text", "text": json.dumps(structured, ensure_ascii=False)}],
+            "structuredContent": structured,
+        }
+
+    def _mcp_query_sql(self, arguments: dict) -> dict:
+        """query_sql → structuredContent {records, meta, total} (2-row Contact stub)."""
+        rows = [copy.deepcopy(r) for r in list(self.records.get("Contact", {}).values())[:2]]
+        total = len(rows)
+        meta = {
+            "document": "Contact",
+            "relations": [],
+            "warnings": [],
+            "executionTimeMs": 1,
+        }
+        structured = {"records": rows, "meta": meta, "total": total}
+        return {
+            "content": [{"type": "text", "text": json.dumps(structured, ensure_ascii=False)}],
+            "structuredContent": structured,
+        }
 
 
 # ---------------------------------------------------------------------------
