@@ -50,6 +50,10 @@ docs/adr/
 | 0002 | [Estrutura do repositório](./0002-estrutura-repositorio.md) | Aceito     | 2026-03-16 |
 | 0003 | [Documentação e changelog obrigatórios](./0003-documentacao-changelog-obrigatorios.md) | Aceito     | 2026-03-16 |
 | 0004 | [Konecty Meta Skills](./0004-konecty-meta-skills.md) | Aceito     | 2026-03-16 |
+| 0005 | [Reference-Project Examples Are Patterns, Not Content](./0005-reference-examples-patterns-not-content.md) | Aceito     | 2026-06-17 |
+| 0006 | [MCP usa token first-party (authId) em Bearer, não OAuth](./0006-mcp-auth-legacy-token-not-oauth.md) | Aceito     | 2026-07-11 |
+| 0007 | [Busca é MCP-first com fallback para REST](./0007-mcp-first-with-rest-fallback.md) | Aceito     | 2026-07-11 |
+| 0008 | [Divergência conhecida do MCP em filtros aninhados](./0008-known-nested-filter-divergence.md) | Aceito     | 2026-07-11 |
 
 ---
 
