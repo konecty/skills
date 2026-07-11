@@ -252,14 +252,15 @@ surface; MCP+REST both fail→surface REST error, non-zero.
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] `query Contact --relations …` hits `query_json`; rows on stdout match REST; the `_meta` line equals the REST shape (`success`+`total` folded in).
-- [ ] Default `--limit 1000` and `--include-meta`/`--no-total` semantics preserved.
-- [ ] 403 → REST fallback with notice.
-- [ ] Gate passes: `make e2e-run`
-- [ ] Test count: ≥4 new mock tests pass.
+- [x] `query Contact --relations …` hits `query_json`; rows on stdout match REST; the `_meta` line equals the REST shape (`success`+`total` folded in).
+- [x] Default `--limit 1000` and `--include-meta`/`--no-total` semantics preserved.
+- [x] 403 → REST fallback with notice.
+- [x] Gate passes: `make e2e-run` (525 passed).
+- [x] Test count: ≥4 new mock tests pass (6 new).
 
 **Tests**: mock · **Gate**: full
 **Commit**: `feat(konecty-data): route query through MCP query_json`
+**Status**: ✅ DONE (089bbb2)
 
 ---
 
@@ -275,13 +276,14 @@ through `_dispatch(_tool_sql, _rest_sql)`, reusing `_adapt_mcp_query` for the `_
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] `sql "SELECT …"` hits `query_sql`; rows + `_meta` match REST.
-- [ ] 403 → REST fallback with notice.
-- [ ] Gate passes: `make e2e-run`
-- [ ] Test count: ≥3 new mock tests pass.
+- [x] `sql "SELECT …"` hits `query_sql`; rows + `_meta` match REST.
+- [x] 403 → REST fallback with notice.
+- [x] Gate passes: `make e2e-run` (529 passed).
+- [x] Test count: ≥3 new mock tests pass (4 new).
 
 **Tests**: mock · **Gate**: full
 **Commit**: `feat(konecty-data): route sql through MCP query_sql`
+**Status**: ✅ DONE (1854221)
 
 ---
 
@@ -299,13 +301,14 @@ one-line pointer in `SKILL.md` if the transport is user-visible.
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] "Known divergences" section documents the nested-filter case + workaround + ADR-0008 link.
-- [ ] `KONECTY_MCP` env and Bearer auth documented; operational `mcpRoleIds` prerequisite noted.
-- [ ] Gate passes: `make check` + `make validate` (SKILL.md still valid).
-- [ ] No broken cross-links.
+- [x] "Known divergences" section documents the nested-filter case + workaround + ADR-0008 link.
+- [x] `KONECTY_MCP` env and Bearer auth documented; operational `mcpRoleIds` prerequisite noted.
+- [x] Gate passes: `make check` + `make validate` (only the pre-existing `gh skill` `name`-vs-`.` env quirk; SKILL.md still valid).
+- [x] No broken cross-links.
 
 **Tests**: none (docs) · **Gate**: quick
 **Commit**: `docs(konecty-data): document MCP-first find + known divergences`
+**Status**: ✅ DONE (096219b)
 
 ---
 
@@ -322,13 +325,14 @@ any new branch is uncovered); add `docs/changelog/2026-07-11_find-via-mcp-impl.m
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] `make e2e-cov` passes with `--fail-under=90` (report the actual %).
-- [ ] Changelog entry + README row added; STATE updated; spec statuses → Verified.
-- [ ] `make check` green; `make audit` shows no new `fail`.
-- [ ] Test count: full suite green (report totals).
+- [x] `make e2e-cov` passes with `--fail-under=90` (**93%**; find.py 90%, mcp_client.py 97%).
+- [x] Changelog entry + README row added; STATE updated; spec statuses flipped to Implemented (Verifier owns final Verified).
+- [x] `make check` green; `make audit` shows no new `fail`.
+- [x] Test count: full suite green (541 passed, 9 skipped).
 
-**Tests**: mock (closers if needed) · **Gate**: build
+**Tests**: mock (closers) · **Gate**: build
 **Commit**: `chore(konecty-data): coverage gate + changelog + STATE for find-via-mcp`
+**Status**: ✅ DONE
 
 ---
 

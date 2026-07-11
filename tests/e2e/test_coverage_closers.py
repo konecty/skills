@@ -1445,3 +1445,132 @@ class TestDataHttpErrors:
             )
         mock_konecty._route_data = original_route_data
         assert r.code == 1
+
+
+# ===========================================================================
+# find.py — REST query/sql fallback branches + MCP query arg mapping
+# (restore coverage after query/sql went MCP-first — T7/T8)
+# ===========================================================================
+
+class TestRestQuerySqlFallbackClosers:
+    """Exercise the _rest_query/_rest_sql optional-arg branches (now reached only
+    via KONECTY_MCP=0 / fallback since query & sql went MCP-first) plus the
+    _tool_query --sort mapping branch."""
+
+    def test_rest_query_all_options(self, mock_konecty, monkeypatch):
+        """_rest_query with filter/fields/sort/relations/include-meta (find.py:206-218)."""
+        monkeypatch.setenv("KONECTY_MCP", "0")
+        fil = json.dumps({"match": "and", "conditions": [
+            {"term": "code", "operator": "equals", "value": 1}]})
+        rels = json.dumps([{"document": "Activity"}])
+        with mock_konecty.patch():
+            r = _agent().run(
+                "konecty-data", "find",
+                ["query", "Contact", "--filter", fil, "--fields", "_id,code",
+                 "--sort", "code:asc", "--relations", rels, "--include-meta"],
+                host=MOCK_HOST, token=MOCK_TOKEN,
+            )
+        assert r.code == 0, r.stderr
+
+    def test_rest_query_no_total(self, mock_konecty, monkeypatch):
+        """_rest_query --no-total → no _meta line → '# Returned' branch (find.py:220,233)."""
+        monkeypatch.setenv("KONECTY_MCP", "0")
+        with mock_konecty.patch():
+            r = _agent().run(
+                "konecty-data", "find",
+                ["query", "Contact", "--no-total"],
+                host=MOCK_HOST, token=MOCK_TOKEN,
+            )
+        assert r.code == 0, r.stderr
+        assert "# Returned:" in r.stderr
+
+    def test_rest_sql_include_meta(self, mock_konecty, monkeypatch):
+        """_rest_sql --include-meta (find.py:243)."""
+        monkeypatch.setenv("KONECTY_MCP", "0")
+        with mock_konecty.patch():
+            r = _agent().run(
+                "konecty-data", "find",
+                ["sql", "SELECT * FROM Contact", "--include-meta"],
+                host=MOCK_HOST, token=MOCK_TOKEN,
+            )
+        assert r.code == 0, r.stderr
+
+    def test_rest_sql_no_total(self, mock_konecty, monkeypatch):
+        """_rest_sql --no-total → no _meta line → '# Returned' branch (find.py:245,258)."""
+        monkeypatch.setenv("KONECTY_MCP", "0")
+        with mock_konecty.patch():
+            r = _agent().run(
+                "konecty-data", "find",
+                ["sql", "SELECT * FROM Contact", "--no-total"],
+                host=MOCK_HOST, token=MOCK_TOKEN,
+            )
+        assert r.code == 0, r.stderr
+        assert "# Returned:" in r.stderr
+
+    def test_tool_query_sort_via_mcp(self, mock_konecty, monkeypatch):
+        """_tool_query --sort branch maps into the query_json arguments (find.py:431)."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        with mock_konecty.patch():
+            r = _agent().run(
+                "konecty-data", "find",
+                ["query", "Contact", "--sort", "code:asc"],
+                host=MOCK_HOST, token=MOCK_TOKEN,
+            )
+        assert r.code == 0, r.stderr
+
+
+# ===========================================================================
+# mcp_client.py — defensive parse/branch closers (flagged in Batch 1)
+# ===========================================================================
+
+class TestMcpClientDefensive:
+    """Close the defensive branches in mcp_client.py not hit by the unit suite:
+    parse_sse non-bytes / blank-payload, the plain-JSON fallback path, and the
+    _result_from_messages id-fallback / no-response / isError-no-text branches."""
+
+    @staticmethod
+    def _mcp():
+        return PseudoAgent()._load("konecty-data", "mcp_client")
+
+    def test_parse_sse_accepts_str_input(self):
+        """parse_sse with a str (not bytes) still parses (non-bytes branch)."""
+        m = self._mcp()
+        msgs = m.parse_sse('data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n\n')
+        assert msgs[0]["result"]["ok"] is True
+
+    def test_parse_sse_blank_data_payload_skipped(self):
+        """A frame whose only data payload is blank is skipped (no exception)."""
+        m = self._mcp()
+        assert m.parse_sse(b"data: \n\n") == []
+
+    def test_messages_from_body_empty_non_sse(self):
+        """Empty body with a non-SSE content-type → [] (early return)."""
+        m = self._mcp()
+        assert m._messages_from_body(b"", "application/json") == []
+
+    def test_messages_from_body_json_fallback_to_sse(self):
+        """Non-SSE content-type + non-JSON body → parse_sse fallback path."""
+        m = self._mcp()
+        raw = b'data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n\n'
+        msgs = m._messages_from_body(raw, "application/octet-stream")
+        assert msgs[0]["result"]["ok"] is True
+
+    def test_result_from_messages_id_not_1_fallback(self):
+        """A result message with id != 1 is still located via the fallback loop."""
+        m = self._mcp()
+        result = {"structuredContent": {"records": [], "total": 0}}
+        assert m._result_from_messages(
+            [{"jsonrpc": "2.0", "id": 2, "result": result}]) == result
+
+    def test_result_from_messages_no_response_raises(self):
+        """No result/error message in the reply → McpTransportError."""
+        m = self._mcp()
+        with pytest.raises(m.McpTransportError):
+            m._result_from_messages([{"jsonrpc": "2.0", "method": "notifications/message"}])
+
+    def test_result_iserror_without_text_block(self):
+        """result.isError with no text content → McpToolError (default message)."""
+        m = self._mcp()
+        with pytest.raises(m.McpToolError):
+            m._result_from_messages(
+                [{"jsonrpc": "2.0", "id": 1, "result": {"isError": True, "content": []}}])

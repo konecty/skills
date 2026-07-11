@@ -245,13 +245,13 @@ Out of Scope table.
 | FMCP-10 | P1: fallback output shape identical to MCP | Execute | Implemented (T6) |
 | FMCP-11 | P1: both-fail surfaces REST error, non-zero exit | Execute | Implemented (T5) |
 | FMCP-12 | P1: 429 disables MCP for the rest of the process | Execute | Implemented (T5) |
-| FMCP-13 | P2: query → query_json with fallback | Design | Pending |
-| FMCP-14 | P2: sql → query_sql with fallback | Design | Pending |
-| FMCP-15 | P2: query/sql `_meta` reconstructed (re-add success+total to MCP `meta`) | Design | Pending |
+| FMCP-13 | P2: query → query_json with fallback | Execute | Implemented (T7) |
+| FMCP-14 | P2: sql → query_sql with fallback | Execute | Implemented (T8) |
+| FMCP-15 | P2: query/sql `_meta` reconstructed (re-add success+total to MCP `meta`) | Execute | Implemented (T7, T8) |
 | FMCP-16 | P2: JSON-RPC envelope + required Accept (both types) + auth header | Execute | Implemented (T2) |
 | FMCP-17 | P2: SSE response parsing (Konecty runs SSE, not JSON mode) | Execute | Implemented (T1) |
 | FMCP-18 | P2: typed error for JSON-RPC error vs HTTP failure vs transport failure | Execute | Implemented (T1, T2) |
-| FMCP-19 | Cross: nested-filter divergence documented (ADR-0008), sent unchanged | Design | Pending |
+| FMCP-19 | Cross: nested-filter divergence documented (ADR-0008), sent unchanged | Execute | Implemented (T9) |
 
 **Coverage:** 19 total, 0 mapped to tasks yet, 0 unmapped. (P3 removed; FMCP-17 simplified — spike
 resolved: no `initialize` handshake, response is always SSE.)
