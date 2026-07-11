@@ -131,7 +131,7 @@ def _print_results(data: Any, output_format: str) -> None:
         print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
-def cmd_find(host: str, token: str, args: argparse.Namespace) -> None:
+def _rest_find(host: str, token: str, args: argparse.Namespace) -> None:
     """Search via /rest/data/:document/find (GET without filter, POST with filter)."""
     document = args.document
     fil = _parse_json_arg(args.filter, "--filter")
@@ -177,7 +177,7 @@ def cmd_find(host: str, token: str, args: argparse.Namespace) -> None:
         _print_results(result, args.output)
 
 
-def cmd_query(host: str, token: str, args: argparse.Namespace) -> None:
+def _rest_query(host: str, token: str, args: argparse.Namespace) -> None:
     """Cross-module query via /rest/query/json."""
     document = args.document
     fil = _parse_json_arg(args.filter, "--filter")
@@ -219,7 +219,7 @@ def cmd_query(host: str, token: str, args: argparse.Namespace) -> None:
         _print_results(result, args.output)
 
 
-def cmd_sql(host: str, token: str, args: argparse.Namespace) -> None:
+def _rest_sql(host: str, token: str, args: argparse.Namespace) -> None:
     """SQL query via /rest/query/sql."""
     body: dict = {"sql": args.sql}
     if args.include_meta:
@@ -242,6 +242,26 @@ def cmd_sql(host: str, token: str, args: argparse.Namespace) -> None:
         _print_results(rows, args.output)
     else:
         _print_results(result, args.output)
+
+
+# ---------------------------------------------------------------------------
+# Subcommand entry points (thin shims; the MCP-first dispatcher wraps these in T5+)
+# ---------------------------------------------------------------------------
+
+
+def cmd_find(host: str, token: str, args: argparse.Namespace) -> None:
+    """Entry point for `find` — currently the REST path (fallback wrapped in T5+)."""
+    _rest_find(host, token, args)
+
+
+def cmd_query(host: str, token: str, args: argparse.Namespace) -> None:
+    """Entry point for `query` — currently the REST path (fallback wrapped in T5+)."""
+    _rest_query(host, token, args)
+
+
+def cmd_sql(host: str, token: str, args: argparse.Namespace) -> None:
+    """Entry point for `sql` — currently the REST path (fallback wrapped in T5+)."""
+    _rest_sql(host, token, args)
 
 
 def main() -> None:
