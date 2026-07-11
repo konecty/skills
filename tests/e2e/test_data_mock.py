@@ -5,12 +5,16 @@ in-memory MockKonecty. No live server required.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import tempfile
 from pathlib import Path
 
 import pytest
+
+from e2e.agent import PseudoAgent
 
 pytestmark = pytest.mark.mock
 
@@ -679,3 +683,239 @@ class TestUpload:
             )
         assert r.ok, r.stderr
         assert "Deleted" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# find.py — MCP-first dispatcher + fallback matrix (T5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def find_mod():
+    """The loaded find.py module, with the process-level MCP flag reset."""
+    mod = PseudoAgent()._load("konecty-data", "find")
+    mod._mcp_disabled = False
+    yield mod
+    mod._mcp_disabled = False
+
+
+def _run_dispatch(mod, mcp_call, rest_call):
+    """Invoke ``mod._dispatch`` capturing (exit_code, stdout, stderr)."""
+    out, err = io.StringIO(), io.StringIO()
+    code = 0
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            mod._dispatch(mcp_call, rest_call)
+        except SystemExit as exc:
+            if isinstance(exc.code, int):
+                code = exc.code
+            elif exc.code is None:
+                code = 0
+            else:
+                code = 1
+                err.write(str(exc.code))
+    return code, out.getvalue(), err.getvalue()
+
+
+class TestDispatcherMatrix:
+    """Every row of the design fallback matrix, driven through ``_dispatch``.
+
+    Requirements: FMCP-06 (401 no-fallback), FMCP-07 (404 silent), FMCP-08
+    (403/429/5xx/transport + notice first), FMCP-09 (happy path silent),
+    FMCP-11 (both-fail surfaces REST error), FMCP-12 (429 disables MCP).
+    """
+
+    NOTICE = "Busca feita via API direta (REST)."
+
+    def _rest_records(self):
+        """A rest_call stub that prints a records array to stdout."""
+        def _call():
+            print(json.dumps([{"_id": "cid001"}]))
+        return _call
+
+    def test_mcp_success_is_silent(self, find_mod, monkeypatch):
+        """FMCP-09: happy MCP path emits no transport notice and skips REST."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        rest_ran = []
+
+        def mcp_call():
+            print(json.dumps([{"_id": "mcp001"}]))
+
+        def rest_call():
+            rest_ran.append(True)
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, rest_call)
+        assert code == 0
+        assert "mcp001" in out
+        assert self.NOTICE not in err
+        assert rest_ran == []  # REST never touched
+
+    def test_fallback_404_silent(self, find_mod, monkeypatch):
+        """FMCP-07: 404 (endpoint absent) → REST, no notice."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        errs = find_mod.mcp_client
+
+        def mcp_call():
+            raise errs.McpHttpError(404, "not found")
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, self._rest_records())
+        assert code == 0
+        assert "cid001" in out
+        assert self.NOTICE not in err  # silent
+
+    @pytest.mark.parametrize("status", [403, 500, 502])
+    def test_fallback_http_with_notice(self, find_mod, monkeypatch, status):
+        """FMCP-08: 403/5xx → REST + one-line notice on stderr."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        errs = find_mod.mcp_client
+
+        def mcp_call():
+            raise errs.McpHttpError(status, "boom")
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, self._rest_records())
+        assert code == 0
+        assert "cid001" in out
+        assert self.NOTICE in err
+
+    def test_fallback_transport_error_with_notice(self, find_mod, monkeypatch):
+        """FMCP-08: connection/timeout/bad-SSE → REST + notice."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        errs = find_mod.mcp_client
+
+        def mcp_call():
+            raise errs.McpTransportError("connection reset")
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, self._rest_records())
+        assert code == 0
+        assert "cid001" in out
+        assert self.NOTICE in err
+
+    def test_notice_emitted_before_records(self, find_mod, monkeypatch):
+        """FMCP-08: the notice is emitted before REST writes the records."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        errs = find_mod.mcp_client
+        order: list[str] = []
+
+        def mcp_call():
+            raise errs.McpHttpError(403, "denied")
+
+        def rest_call():
+            order.append("records")
+
+        # Shadow find.py's ``print`` to record when the notice is emitted; the
+        # only print on the 403 path is the fallback notice itself.
+        def rec_print(*a, **k):
+            if a and self.NOTICE in str(a[0]):
+                order.append("notice")
+
+        monkeypatch.setattr(find_mod, "print", rec_print, raising=False)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            find_mod._dispatch(mcp_call, rest_call)
+
+        assert order == ["notice", "records"]
+
+    def test_401_surfaces_no_fallback(self, find_mod, monkeypatch):
+        """FMCP-06: 401 → auth error, exit≠0, REST never called."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        errs = find_mod.mcp_client
+        rest_ran = []
+
+        def mcp_call():
+            raise errs.McpHttpError(401, "unauthorized")
+
+        def rest_call():
+            rest_ran.append(True)
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, rest_call)
+        assert code == 1
+        assert "401" in err
+        assert rest_ran == []
+
+    def test_tool_error_surfaces_no_fallback(self, find_mod, monkeypatch):
+        """Validation (McpToolError) → surface, exit≠0, REST never called."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        errs = find_mod.mcp_client
+        rest_ran = []
+
+        def mcp_call():
+            raise errs.McpToolError("VALIDATION_ERROR", "invalid document Contato")
+
+        def rest_call():
+            rest_ran.append(True)
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, rest_call)
+        assert code == 1
+        assert "invalid document" in err
+        assert rest_ran == []
+
+    def test_both_fail_surfaces_rest_error(self, find_mod, monkeypatch):
+        """FMCP-11: MCP 403 then REST also fails → REST error surfaces, exit≠0."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        errs = find_mod.mcp_client
+
+        def mcp_call():
+            raise errs.McpHttpError(403, "denied")
+
+        def rest_call():
+            raise SystemExit("HTTP 500: database unreachable")
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, rest_call)
+        assert code == 1
+        assert "HTTP 500" in err  # the actionable REST error surfaces
+        assert self.NOTICE in err  # fallback was attempted
+
+    def test_429_disables_mcp_for_rest_of_process(self, find_mod, monkeypatch):
+        """FMCP-12: first 429 falls back + notice; later calls skip MCP entirely."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        errs = find_mod.mcp_client
+
+        def mcp_call_429():
+            raise errs.McpHttpError(429, "rate limited")
+
+        code1, out1, err1 = _run_dispatch(find_mod, mcp_call_429, self._rest_records())
+        assert code1 == 0
+        assert self.NOTICE in err1
+        assert find_mod._mcp_disabled is True
+
+        # Second call: MCP must NOT be attempted (flag set) → straight to REST, silent.
+        mcp_called = []
+
+        def mcp_call_2():
+            mcp_called.append(True)
+            print(json.dumps([{"_id": "shouldnothappen"}]))
+
+        code2, out2, err2 = _run_dispatch(find_mod, mcp_call_2, self._rest_records())
+        assert code2 == 0
+        assert mcp_called == []  # MCP skipped
+        assert "cid001" in out2
+        assert self.NOTICE not in err2  # no repeated notice
+
+    def test_konecty_mcp_0_rest_only(self, find_mod, monkeypatch):
+        """KONECTY_MCP=0 → MCP never attempted, REST runs silently."""
+        monkeypatch.setenv("KONECTY_MCP", "0")
+        mcp_called = []
+
+        def mcp_call():
+            mcp_called.append(True)
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, self._rest_records())
+        assert code == 0
+        assert mcp_called == []
+        assert "cid001" in out
+        assert self.NOTICE not in err
+
+    def test_konecty_mcp_only_fail_no_fallback(self, find_mod, monkeypatch):
+        """KONECTY_MCP=only + MCP failure → surface, exit≠0, REST never called."""
+        monkeypatch.setenv("KONECTY_MCP", "only")
+        errs = find_mod.mcp_client
+        rest_ran = []
+
+        def mcp_call():
+            raise errs.McpHttpError(403, "denied")
+
+        def rest_call():
+            rest_ran.append(True)
+
+        code, out, err = _run_dispatch(find_mod, mcp_call, rest_call)
+        assert code == 1
+        assert rest_ran == []

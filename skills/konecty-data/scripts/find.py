@@ -16,7 +16,24 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+# Resolve the sibling ``mcp_client`` module whether run as a CLI (script dir is
+# already on sys.path) or imported in-process by the test harness (it is not).
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+import mcp_client  # noqa: E402
+
 CREDENTIALS_DIR = os.path.expanduser("~/.konecty")
+
+# ---------------------------------------------------------------------------
+# MCP-first dispatch state (per-process; each CLI run is a fresh process)
+# ---------------------------------------------------------------------------
+
+# Flipped to True after a 429 so later calls this run skip MCP and go to REST.
+_mcp_disabled = False
+
+# One short sentence emitted (stderr, before records) only when a fallback fires.
+_FALLBACK_NOTICE = "Busca feita via API direta (REST)."
 ENV_FILE = os.path.join(CREDENTIALS_DIR, ".env")
 CREDENTIALS_FILE = os.path.join(CREDENTIALS_DIR, "credentials")
 
@@ -245,22 +262,89 @@ def _rest_sql(host: str, token: str, args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Subcommand entry points (thin shims; the MCP-first dispatcher wraps these in T5+)
+# MCP-first dispatcher + fallback matrix
+# ---------------------------------------------------------------------------
+
+
+def _mcp_mode() -> str:
+    """`KONECTY_MCP`: ``1``/unset = MCP-first, ``0`` = REST-only, ``only`` = strict."""
+    return os.environ.get("KONECTY_MCP", "1")
+
+
+def _mcp_enabled() -> bool:
+    """True when MCP should be attempted (not disabled by env or a prior 429)."""
+    return _mcp_mode() != "0" and not _mcp_disabled
+
+
+def _dispatch(mcp_call, rest_call) -> None:
+    """Run *mcp_call*; on infra failure fall back to *rest_call* per the matrix.
+
+    Matrix (design.md "Error Handling Strategy"):
+      - MCP disabled (`KONECTY_MCP=0` or a prior 429) → REST only, silent.
+      - `McpToolError` (validation)                   → surface, exit≠0, NO fallback.
+      - HTTP 401 (bad/expired token)                  → surface auth error, NO fallback.
+      - `KONECTY_MCP=only` + any MCP failure          → surface, exit≠0, NO fallback.
+      - HTTP 404 (endpoint absent — old Konecty)      → REST, SILENT.
+      - HTTP 403/429/5xx, conn/timeout/bad-SSE        → REST + one-line notice FIRST.
+      - HTTP 429 additionally disables MCP for the rest of the process.
+      - MCP fails AND REST fails                       → the REST error surfaces (exit≠0).
+    """
+    global _mcp_disabled
+
+    if not _mcp_enabled():
+        rest_call()
+        return
+
+    strict = _mcp_mode() == "only"
+    try:
+        mcp_call()
+        return
+    except mcp_client.McpToolError as exc:
+        # A query-level problem (bad filter/document/sort) — never mask it with REST.
+        sys.exit(f"MCP tool error: {exc.message}")
+    except (mcp_client.McpHttpError, mcp_client.McpTransportError) as exc:
+        is_http = isinstance(exc, mcp_client.McpHttpError)
+
+        # 401: a bad/expired token fails REST too — surface, do not fall back.
+        if is_http and exc.status == 401:
+            sys.exit(
+                "MCP authentication failed (401). Your token may be expired — "
+                "re-run the session/auth flow to re-login."
+            )
+
+        # Strict mode: diagnostics only, no fallback.
+        if strict:
+            sys.exit(f"MCP failed and fallback is disabled (KONECTY_MCP=only): {exc}")
+
+        # 429: disable MCP for the remainder of the process (one notice, not per page).
+        if is_http and exc.status == 429:
+            _mcp_disabled = True
+
+        # 404 (endpoint absent) is a silent fallback; everything else announces it.
+        silent = is_http and exc.status == 404
+        if not silent:
+            print(_FALLBACK_NOTICE, file=sys.stderr)
+
+        rest_call()
+
+
+# ---------------------------------------------------------------------------
+# Subcommand entry points (thin shims; find/query/sql get wired to MCP in T6-T8)
 # ---------------------------------------------------------------------------
 
 
 def cmd_find(host: str, token: str, args: argparse.Namespace) -> None:
-    """Entry point for `find` — currently the REST path (fallback wrapped in T5+)."""
+    """Entry point for `find` — currently the REST path (MCP wiring lands in T6)."""
     _rest_find(host, token, args)
 
 
 def cmd_query(host: str, token: str, args: argparse.Namespace) -> None:
-    """Entry point for `query` — currently the REST path (fallback wrapped in T5+)."""
+    """Entry point for `query` — currently the REST path (MCP wiring lands in T7)."""
     _rest_query(host, token, args)
 
 
 def cmd_sql(host: str, token: str, args: argparse.Namespace) -> None:
-    """Entry point for `sql` — currently the REST path (fallback wrapped in T5+)."""
+    """Entry point for `sql` — currently the REST path (MCP wiring lands in T8)."""
     _rest_sql(host, token, args)
 
 
