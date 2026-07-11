@@ -30,6 +30,10 @@ If credentials are missing or expired, use the OTP auth flow first — see [refe
 | Delete record, remove, erase, deletar registro, remover registro, apagar, excluir registro | [references/delete.md](references/delete.md) |
 | Upload file, attach file, send image, fazer upload, anexar arquivo, enviar imagem, upload foto | [references/upload.md](references/upload.md) |
 
+> **Transport note:** `find` / `query` / `sql` read through the Konecty **User MCP** (`POST /mcp`,
+> `Authorization: Bearer`) with automatic REST fallback and a `KONECTY_MCP` env switch
+> (`0` = REST-only, `only` = strict). Transparent by default — see [references/find.md](references/find.md).
+
 ## Shared files (gated)
 
 `scripts/auth.py` and `scripts/modules.py` are byte-identical with `konecty-meta`. A pre-commit hook and GitHub Action enforce this — changes must be applied to both skills simultaneously. See `shared-files.txt` for the full manifest.

@@ -17,6 +17,47 @@ If the module name or field names are unknown, use **konecty-modules** to discov
 | `/rest/query/json` | POST | Cross-module query with relations and aggregators |
 | `/rest/query/sql` | POST | SQL query (translated to JSON query internally) |
 
+## Transport: MCP-first with automatic REST fallback
+
+`find` / `query` / `sql` issue their reads through the Konecty **User MCP** server first
+(`POST /mcp`, stateless Streamable HTTP — the `records_find` / `query_json` / `query_sql` tools),
+and fall back to the REST endpoints above automatically. The migration is transparent: the stdout
+records array and the `# Total: N  Returned: M` stderr summary are identical on both paths, so
+`jq` pipelines are unaffected.
+
+- **Auth** — the same `KONECTY_TOKEN` (`authId`) is reused, sent to `/mcp` as
+  `Authorization: Bearer <authId>`. No OAuth, no new login step.
+- **Fallback notice** — when a fallback fires, a one-line notice `Busca feita via API direta (REST).`
+  is printed **first** on **stderr** (before the records). The happy MCP path is silent. A `404`
+  (MCP endpoint absent — older Konecty) falls back **silently**. `401` (bad/expired token) and MCP
+  tool-validation errors (bad document / filter / sort) are **surfaced, not** silently retried on REST.
+- **`KONECTY_MCP` env var** controls the transport:
+
+  | Value | Behavior |
+  |-------|----------|
+  | unset / `1` | MCP-first with automatic REST fallback (**default**) |
+  | `0` | REST-only — skip MCP entirely (avoids a wasted round-trip where MCP is known-absent, and the nested-filter divergence below) |
+  | `only` | MCP with **no** fallback (strict / diagnostic mode) |
+
+### Operational prerequisite (live MCP path)
+
+To exercise the **live** MCP path (not just fallback) the Konecty namespace must have the User MCP
+enabled and include the caller's role `_id` in **`mcpRoleIds`** (deny-by-default — an empty list
+means every caller gets `403 mcp_access_denied` and transparently falls back to REST). This is a
+`konecty-meta namespace` (admin) setting. An unconfigured namespace still works via the REST
+fallback, with the notice above.
+
+### Known divergences
+
+- **Nested filters (`filters` nested 2+ levels)** — the MCP `KonFilter` validator silently strips
+  `filters` groups nested two or more levels deep, so the **same** `--filter` can return a
+  **superset** of records via MCP vs REST, with no error or warning. This is rare (Konecty's own
+  `filter_build` never generates such filters; single-level `filters` are identical on both paths).
+  **Workaround:** use `KONECTY_MCP=0` (force REST) for deeply nested filters until the Konecty-side
+  fix lands. The divergence is accepted and documented rather than worked around in the skill; the
+  fix belongs in the server's `KonFilter` schema. See **ADR-0008** (repo
+  `docs/adr/0008-known-nested-filter-divergence.md`).
+
 ## Script
 
 ```bash
