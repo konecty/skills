@@ -425,7 +425,6 @@ class TestMockMcpRoute:
     @pytest.mark.parametrize("method", ["GET", "DELETE"])
     def test_non_post_methods_405(self, method):
         """GET/DELETE /mcp → 405 (McpHttpError on the client side)."""
-        m = mcp()
         mk = MockKonecty()
         with mk.patch():
             req = urllib.request.Request("http://mock.local/mcp", method=method)
