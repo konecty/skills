@@ -919,3 +919,129 @@ class TestDispatcherMatrix:
         code, out, err = _run_dispatch(find_mod, mcp_call, rest_call)
         assert code == 1
         assert rest_ran == []
+
+
+# ---------------------------------------------------------------------------
+# find.py — `find` routed through MCP records_find (T6)
+# ---------------------------------------------------------------------------
+
+
+class TestFindViaMcp:
+    """`find` over the MCP records_find tool, with REST fallback and parity.
+
+    Requirements: FMCP-01 (records_find), FMCP-02 (local filter reject),
+    FMCP-03 (Bearer), FMCP-04 (output contract), FMCP-05 (arg mapping),
+    FMCP-10 (fallback shape parity).
+    """
+
+    def test_find_uses_mcp_when_enabled(self, agent, mock_konecty, monkeypatch):
+        """FMCP-01: with MCP up, `find` is served by records_find (REST path broken)."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+
+        def boom(*a, **k):
+            from e2e.mock_konecty import _err
+            raise _err(500, "REST find must not be called when MCP succeeds")
+
+        mock_konecty._handle_data_find = boom  # break REST so success ⇒ MCP served it
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find", ["find", "Contact"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        data = json.loads(r.stdout)
+        assert len(data) == 2
+        assert "Busca feita via API direta" not in r.stderr  # happy path silent
+
+    def test_find_mcp_rest_output_parity(self, agent, mock_konecty, monkeypatch):
+        """FMCP-04/10: MCP-path stdout+total is byte-identical to the REST path."""
+        with mock_konecty.patch():
+            monkeypatch.delenv("KONECTY_MCP", raising=False)
+            r_mcp = agent.run("konecty-data", "find", ["find", "Contact"], host=HOST, token=TOKEN)
+            monkeypatch.setenv("KONECTY_MCP", "0")
+            r_rest = agent.run("konecty-data", "find", ["find", "Contact"], host=HOST, token=TOKEN)
+        assert r_mcp.ok and r_rest.ok, (r_mcp.stderr, r_rest.stderr)
+        assert r_mcp.stdout == r_rest.stdout
+        assert "# Total: 2  Returned: 2" in r_mcp.stderr
+        assert "# Total: 2  Returned: 2" in r_rest.stderr
+
+    def test_find_mcp_filter_passthrough(self, agent, mock_konecty, monkeypatch):
+        """FMCP-02/05: a canonical KonFilter passes through to records_find."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        fil = json.dumps({"match": "and", "conditions": [
+            {"term": "_id", "operator": "equals", "value": "cid001"}]})
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["find", "Contact", "--filter", fil], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        data = json.loads(r.stdout)
+        assert len(data) == 1 and data[0]["_id"] == "cid001"
+
+    def test_find_mcp_malformed_filter_rejected_before_call(self, agent, monkeypatch):
+        """FMCP-02: malformed --filter is rejected locally, before any network call.
+
+        Run WITHOUT the mock patched: a local reject exits with the JSON error;
+        had it reached the network it would surface a connection error instead.
+        """
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        r = agent.run("konecty-data", "find",
+                      ["find", "Contact", "--filter", "{not valid json"],
+                      host=HOST, token=TOKEN)
+        assert r.code == 1
+        assert "Invalid --filter" in r.stderr
+
+    def test_find_mcp_fields_projection(self, agent, mock_konecty, monkeypatch):
+        """FMCP-05: --fields maps to records_find `fields` (csv) and projects."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["find", "Contact", "--fields", "_id,code"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        for rec in json.loads(r.stdout):
+            assert "status" not in rec
+
+    def test_find_mcp_limit_neg1_passthrough(self, agent, mock_konecty, monkeypatch):
+        """FMCP-05: --limit -1 (no limit) passes through unchanged."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["find", "Contact", "--limit", "-1"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        assert len(json.loads(r.stdout)) == 2
+
+    def test_find_mcp_sort_normalized(self, agent, mock_konecty, monkeypatch):
+        """FMCP-05: --sort shorthand normalizes to {property, direction:UPPER}."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["find", "Contact", "--sort", "code:asc"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+
+    def test_find_mcp_403_falls_back_with_notice(self, agent, mock_konecty, monkeypatch):
+        """FMCP-08: MCP 403 → records via REST fallback + notice first."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        mock_konecty.mcp_fault = 403
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find", ["find", "Contact"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        assert len(json.loads(r.stdout)) == 2  # REST still returns records
+        assert "Busca feita via API direta (REST)." in r.stderr
+
+    def test_find_mcp_404_silent_fallback(self, agent, mock_konecty, monkeypatch):
+        """FMCP-07: MCP 404 → records via REST, no notice."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        mock_konecty.mcp_fault = 404
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find", ["find", "Contact"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        assert len(json.loads(r.stdout)) == 2
+        assert "Busca feita via API direta" not in r.stderr
+
+    def test_find_mcp_output_ndjson(self, agent, mock_konecty, monkeypatch):
+        """FMCP-04: --output ndjson still works over the MCP path."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["--output", "ndjson", "find", "Contact"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        lines = [l for l in r.stdout.strip().splitlines() if l.strip()]
+        assert len(lines) == 2
+        for line in lines:
+            json.loads(line)

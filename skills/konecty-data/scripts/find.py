@@ -329,13 +329,65 @@ def _dispatch(mcp_call, rest_call) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Subcommand entry points (thin shims; find/query/sql get wired to MCP in T6-T8)
+# MCP tool argument builders + output adapter
+# ---------------------------------------------------------------------------
+
+
+def _adapt_mcp(result: dict, output_format: str) -> None:
+    """Print an MCP ``records_find`` result: records → stdout, total → stderr.
+
+    Mirrors the REST ``find`` output contract exactly (``# Total: N  Returned:
+    M`` on stderr, records array on stdout) so downstream ``jq`` pipelines are
+    unaffected by which transport served the request (FMCP-04, FMCP-10).
+    """
+    structured = result.get("structuredContent") or {}
+    records = structured.get("records", [])
+    total = structured.get("total")
+    if total is not None:
+        print(f"# Total: {total}  Returned: {len(records)}", file=sys.stderr)
+    else:
+        print(f"# Returned: {len(records)}", file=sys.stderr)
+    _print_results(records, output_format)
+
+
+def _tool_find(host: str, token: str, args: argparse.Namespace) -> None:
+    """Search via the MCP ``records_find`` tool (mapped from the CLI args).
+
+    ``--filter`` is already a canonical KonFilter and ``--sort`` is already
+    ``{property, direction:UPPER}`` — both pass through unchanged. Malformed
+    JSON is rejected locally by ``_parse_json_arg`` before any network call
+    (FMCP-02). ``--limit -1`` (no limit) passes through untouched.
+    """
+    fil = _parse_json_arg(args.filter, "--filter")
+    sort = _parse_sort(args.sort)
+
+    arguments: dict = {"document": args.document}
+    if fil:
+        arguments["filter"] = fil
+    if args.fields:
+        arguments["fields"] = args.fields
+    if sort:
+        arguments["sort"] = sort
+    if args.limit is not None:
+        arguments["limit"] = args.limit
+    if args.start is not None:
+        arguments["start"] = args.start
+
+    result = mcp_client.call_tool(host, token, "records_find", arguments)
+    _adapt_mcp(result, args.output)
+
+
+# ---------------------------------------------------------------------------
+# Subcommand entry points (MCP-first with REST fallback)
 # ---------------------------------------------------------------------------
 
 
 def cmd_find(host: str, token: str, args: argparse.Namespace) -> None:
-    """Entry point for `find` — currently the REST path (MCP wiring lands in T6)."""
-    _rest_find(host, token, args)
+    """`find` — MCP ``records_find`` first, REST ``/rest/data/:document/find`` fallback."""
+    _dispatch(
+        lambda: _tool_find(host, token, args),
+        lambda: _rest_find(host, token, args),
+    )
 
 
 def cmd_query(host: str, token: str, args: argparse.Namespace) -> None:

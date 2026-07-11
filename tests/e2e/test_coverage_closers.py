@@ -1420,8 +1420,14 @@ class TestDataHttpErrors:
         mock_konecty._route_data = original_route_data
         assert r.code == 1
 
-    def test_find_http_error(self, mock_konecty):
-        """find when GET /rest/data/X/find returns HTTP error → exit 1."""
+    def test_find_http_error(self, mock_konecty, monkeypatch):
+        """find (REST path) when GET /rest/data/X/find returns HTTP error → exit 1.
+
+        `find` is MCP-first now, so we pin it to the REST path with
+        ``KONECTY_MCP=0`` to exercise the REST GET HTTPError branch (which is
+        what this coverage closer targets).
+        """
+        monkeypatch.setenv("KONECTY_MCP", "0")
         original_route_data = mock_konecty._route_data
 
         def patched(method, path, query_string, req):
