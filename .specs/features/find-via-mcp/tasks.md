@@ -90,16 +90,17 @@ concatenate `data:` lines per frame, JSON-parse each) and the three typed error 
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] `parse_sse` extracts the JSON-RPC message from a canned single-frame SSE body and from a multi-frame
+- [x] `parse_sse` extracts the JSON-RPC message from a canned single-frame SSE body and from a multi-frame
       body (priming + result); returns `[]`/raises cleanly on a truncated/malformed frame.
-- [ ] The three error classes exist; `McpHttpError` carries `.status`.
-- [ ] Stdlib only (`json`, `urllib`); byte-compiles.
-- [ ] Unit tests written in `tests/e2e/test_mcp_client.py`: valid single-frame, multi-frame, malformed → error.
-- [ ] Gate passes: `make check` + `uv run --with pytest --with coverage python -m pytest tests/e2e/test_mcp_client.py -q`
-- [ ] Test count: ≥4 tests pass (no silent deletions).
+- [x] The three error classes exist; `McpHttpError` carries `.status`.
+- [x] Stdlib only (`json`, `urllib`); byte-compiles.
+- [x] Unit tests written in `tests/e2e/test_mcp_client.py`: valid single-frame, multi-frame, malformed → error.
+- [x] Gate passes: `make check` + `uv run --with pytest --with coverage python -m pytest tests/e2e/test_mcp_client.py -q`
+- [x] Test count: ≥4 tests pass (9 pass, no silent deletions).
 
 **Tests**: unit · **Gate**: quick
 **Commit**: `feat(konecty-data): add stdlib MCP SSE parser + typed errors`
+**Status**: ✅ DONE (077b1e5)
 
 ---
 
@@ -119,16 +120,17 @@ read the response, parse SSE (or JSON) via T1, and return the tool `result`; rai
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] Sends both Accept types, `Bearer` header, and `authTokenId` in arguments (asserted against a canned request).
-- [ ] Extracts the same `result` object from a 200 SSE body and a 200 JSON body (defensive JSON path).
-- [ ] 200 with JSON-RPC `error` → `McpToolError`; 200 `result.isError` → `McpToolError`; non-2xx → `McpHttpError(.status)`; `URLError`/timeout → `McpTransportError`.
-- [ ] Stdlib only; byte-compiles.
-- [ ] Unit tests in `tests/e2e/test_mcp_client.py` cover all branches (canned SSE/JSON + each error).
-- [ ] Gate passes: `make check` + `uv run --with pytest --with coverage python -m pytest tests/e2e/test_mcp_client.py -q`
-- [ ] Test count: ≥6 additional tests pass.
+- [x] Sends both Accept types, `Bearer` header, and `authTokenId` in arguments (asserted against a canned request).
+- [x] Extracts the same `result` object from a 200 SSE body and a 200 JSON body (defensive JSON path).
+- [x] 200 with JSON-RPC `error` → `McpToolError`; 200 `result.isError` → `McpToolError`; non-2xx → `McpHttpError(.status)`; `URLError`/timeout → `McpTransportError`.
+- [x] Stdlib only; byte-compiles.
+- [x] Unit tests in `tests/e2e/test_mcp_client.py` cover all branches (canned SSE/JSON + each error).
+- [x] Gate passes: `make check` + `uv run --with pytest --with coverage python -m pytest tests/e2e/test_mcp_client.py -q`
+- [x] Test count: ≥6 additional tests pass (11 new).
 
 **Tests**: unit · **Gate**: quick
 **Commit**: `feat(konecty-data): add MCP tools/call client (SSE, Bearer, typed errors)`
+**Status**: ✅ DONE (711331b)
 
 ---
 
@@ -147,15 +149,16 @@ fallback branch. GET/DELETE `/mcp` → 405.
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] `POST /mcp` with `records_find` returns a 200 SSE frame whose data is `{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"records":[...],"total":N,"pagination":{...}}}}`, filtered/projected via the existing helpers.
-- [ ] `query_json`/`query_sql` return `structuredContent {records, meta, total}`.
-- [ ] Fault sentinels produce 403/404/429/URLError; GET/DELETE → 405.
-- [ ] The mock self-test (if any) and full suite stay green.
-- [ ] Gate passes: `make e2e-run`
-- [ ] Test count: existing suite green + ≥1 smoke test asserting the SSE route.
+- [x] `POST /mcp` with `records_find` returns a 200 SSE frame whose data is `{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"records":[...],"total":N,"pagination":{...}}}}`, filtered/projected via the existing helpers.
+- [x] `query_json`/`query_sql` return `structuredContent {records, meta, total}`.
+- [x] Fault sentinels produce 403/404/429/URLError (+ badsse/toolerror); GET/DELETE → 405.
+- [x] The mock self-test and full suite stay green.
+- [x] Gate passes: `make e2e-run` (496 passed, 9 skipped).
+- [x] Test count: existing suite green + 12 smoke tests asserting the SSE route + faults.
 
 **Tests**: none (test infra) · **Gate**: full
 **Commit**: `test(e2e): add MockKonecty /mcp SSE route + fault injection`
+**Status**: ✅ DONE (b5f03a5)
 
 ---
 
@@ -172,14 +175,15 @@ fallback implementation before the dispatcher wraps it.
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] `_rest_find/_rest_query/_rest_sql` contain the former `cmd_*` logic unchanged.
-- [ ] All existing `find`/`query`/`sql` mock tests still pass unchanged (behavior identical).
-- [ ] Byte-compiles; stdlib only.
-- [ ] Gate passes: `make check` + `make e2e-run`
-- [ ] Test count: existing data-mock suite green (no deletions).
+- [x] `_rest_find/_rest_query/_rest_sql` contain the former `cmd_*` logic unchanged.
+- [x] All existing `find`/`query`/`sql` mock tests still pass unchanged (behavior identical).
+- [x] Byte-compiles; stdlib only.
+- [x] Gate passes: `make check` + `make e2e-run` (496 passed).
+- [x] Test count: existing data-mock suite green (no deletions).
 
 **Tests**: mock (existing, unchanged) · **Gate**: full
 **Commit**: `refactor(konecty-data): extract REST find/query/sql as fallback fns`
+**Status**: ✅ DONE (baace3e)
 
 ---
 
@@ -198,13 +202,14 @@ surface; MCP+REST both fail→surface REST error, non-zero.
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] Mock tests for each matrix row: 404 (silent fallback), 403 (fallback + notice-first), 429 (fallback + notice + subsequent call skips MCP), 401 (surface, exit≠0, no REST), `McpToolError` (surface, no REST), both-fail (REST error surfaced, exit≠0), `KONECTY_MCP=0` (REST only), `KONECTY_MCP=only`+fail (surface, no fallback).
-- [ ] Notice text is one short line on stderr, before stdout records; stdout stays a clean records array.
-- [ ] Gate passes: `make e2e-run`
-- [ ] Test count: ≥8 new mock tests pass.
+- [x] Mock tests for each matrix row: 404 (silent fallback), 403 (fallback + notice-first), 429 (fallback + notice + subsequent call skips MCP), 401 (surface, exit≠0, no REST), `McpToolError` (surface, no REST), both-fail (REST error surfaced, exit≠0), `KONECTY_MCP=0` (REST only), `KONECTY_MCP=only`+fail (surface, no fallback).
+- [x] Notice text is one short line on stderr, before stdout records; stdout stays a clean records array.
+- [x] Gate passes: `make e2e-run` (509 passed).
+- [x] Test count: ≥8 new mock tests pass (13 new).
 
 **Tests**: mock · **Gate**: full
 **Commit**: `feat(konecty-data): MCP-first dispatcher with REST fallback matrix`
+**Status**: ✅ DONE (08885f5)
 
 ---
 
@@ -221,15 +226,16 @@ surface; MCP+REST both fail→surface REST error, non-zero.
 **Tools**: MCP: NONE · Skill: NONE
 
 **Done when**:
-- [ ] `find Contact` over the mock hits `records_find`; stdout records + stderr total match the REST path (parity).
-- [ ] `--filter` passes through as canonical KonFilter; malformed/Mongo JSON is rejected locally before any call.
-- [ ] `--sort` normalized to `{property, direction:UPPER}`; `--fields` csv; `--limit -1` passed through.
-- [ ] On MCP 403, `find` still returns records via REST fallback with the notice.
-- [ ] Gate passes: `make e2e-run`
-- [ ] Test count: ≥6 new mock tests pass.
+- [x] `find Contact` over the mock hits `records_find`; stdout records + stderr total match the REST path (parity).
+- [x] `--filter` passes through as canonical KonFilter; malformed/Mongo JSON is rejected locally before any call.
+- [x] `--sort` normalized to `{property, direction:UPPER}`; `--fields` csv; `--limit -1` passed through.
+- [x] On MCP 403, `find` still returns records via REST fallback with the notice.
+- [x] Gate passes: `make e2e-run` (519 passed).
+- [x] Test count: ≥6 new mock tests pass (10 new; realigned 1 stale coverage closer).
 
 **Tests**: mock · **Gate**: full
 **Commit**: `feat(konecty-data): route find through MCP records_find`
+**Status**: ✅ DONE (aed9756)
 
 ---
 

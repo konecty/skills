@@ -233,24 +233,24 @@ Out of Scope table.
 
 | Requirement ID | Story | Phase | Status |
 | -------------- | ----- | ----- | ------ |
-| FMCP-01 | P1: records_find search | Design | Pending |
-| FMCP-02 | P1: local canonical filter build + reject malformed | Design | Pending |
-| FMCP-03 | P1: Bearer legacy-token auth | Design | Pending |
-| FMCP-04 | P1: stdout/stderr output contract preserved | Design | Pending |
-| FMCP-05 | P1: CLI arg → records_find input mapping | Design | Pending |
-| FMCP-06 | P1: missing-credential + 401 auth error (no silent fallback) | Design | Pending |
-| FMCP-07 | P1: fallback on 404 (silent) | Design | Pending |
-| FMCP-08 | P1: fallback on 403/429/5xx/conn/timeout/bad-SSE with short notice emitted first | Design | Pending |
-| FMCP-09 | P1: happy MCP path emits no transport notice | Design | Pending |
-| FMCP-10 | P1: fallback output shape identical to MCP | Design | Pending |
-| FMCP-11 | P1: both-fail surfaces REST error, non-zero exit | Design | Pending |
-| FMCP-12 | P1: 429 disables MCP for the rest of the process | Design | Pending |
+| FMCP-01 | P1: records_find search | Execute | Implemented (T6) |
+| FMCP-02 | P1: local canonical filter build + reject malformed | Execute | Implemented (T6) |
+| FMCP-03 | P1: Bearer legacy-token auth | Execute | Implemented (T2, T6) |
+| FMCP-04 | P1: stdout/stderr output contract preserved | Execute | Implemented (T6) |
+| FMCP-05 | P1: CLI arg → records_find input mapping | Execute | Implemented (T6) |
+| FMCP-06 | P1: missing-credential + 401 auth error (no silent fallback) | Execute | Implemented (T5) |
+| FMCP-07 | P1: fallback on 404 (silent) | Execute | Implemented (T5) |
+| FMCP-08 | P1: fallback on 403/429/5xx/conn/timeout/bad-SSE with short notice emitted first | Execute | Implemented (T5) |
+| FMCP-09 | P1: happy MCP path emits no transport notice | Execute | Implemented (T5) |
+| FMCP-10 | P1: fallback output shape identical to MCP | Execute | Implemented (T6) |
+| FMCP-11 | P1: both-fail surfaces REST error, non-zero exit | Execute | Implemented (T5) |
+| FMCP-12 | P1: 429 disables MCP for the rest of the process | Execute | Implemented (T5) |
 | FMCP-13 | P2: query → query_json with fallback | Design | Pending |
 | FMCP-14 | P2: sql → query_sql with fallback | Design | Pending |
 | FMCP-15 | P2: query/sql `_meta` reconstructed (re-add success+total to MCP `meta`) | Design | Pending |
-| FMCP-16 | P2: JSON-RPC envelope + required Accept (both types) + auth header | Design | Pending |
-| FMCP-17 | P2: SSE response parsing (Konecty runs SSE, not JSON mode) | Design | Pending |
-| FMCP-18 | P2: typed error for JSON-RPC error vs HTTP failure vs transport failure | Design | Pending |
+| FMCP-16 | P2: JSON-RPC envelope + required Accept (both types) + auth header | Execute | Implemented (T2) |
+| FMCP-17 | P2: SSE response parsing (Konecty runs SSE, not JSON mode) | Execute | Implemented (T1) |
+| FMCP-18 | P2: typed error for JSON-RPC error vs HTTP failure vs transport failure | Execute | Implemented (T1, T2) |
 | FMCP-19 | Cross: nested-filter divergence documented (ADR-0008), sent unchanged | Design | Pending |
 
 **Coverage:** 19 total, 0 mapped to tasks yet, 0 unmapped. (P3 removed; FMCP-17 simplified — spike
