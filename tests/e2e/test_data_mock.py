@@ -1045,3 +1045,86 @@ class TestFindViaMcp:
         assert len(lines) == 2
         for line in lines:
             json.loads(line)
+
+
+# ---------------------------------------------------------------------------
+# find.py — `query` routed through MCP query_json (T7)
+# ---------------------------------------------------------------------------
+
+
+class TestQueryViaMcp:
+    """`query` over the MCP query_json tool, with REST fallback and _meta parity.
+
+    Requirements: FMCP-13 (query_json + fallback), FMCP-15 (_meta reconstruction:
+    re-add success + fold total back into the bare MCP meta).
+    """
+
+    def test_query_uses_mcp_when_enabled(self, agent, mock_konecty, monkeypatch):
+        """FMCP-13: with MCP up, `query` is served by query_json (REST path broken)."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+
+        def boom(*a, **k):
+            from e2e.mock_konecty import _err
+            raise _err(500, "REST query must not be called when MCP succeeds")
+
+        mock_konecty._handle_query_json = boom  # break REST so success ⇒ MCP served it
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find", ["query", "Contact"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        rows = json.loads(r.stdout)
+        assert len(rows) == 2
+        assert "Busca feita via API direta" not in r.stderr  # happy path silent
+
+    def test_query_mcp_rest_output_parity(self, agent, mock_konecty, monkeypatch):
+        """FMCP-13/15: MCP-path stdout + total line is byte-identical to REST."""
+        with mock_konecty.patch():
+            monkeypatch.delenv("KONECTY_MCP", raising=False)
+            r_mcp = agent.run("konecty-data", "find", ["query", "Contact"], host=HOST, token=TOKEN)
+            monkeypatch.setenv("KONECTY_MCP", "0")
+            r_rest = agent.run("konecty-data", "find", ["query", "Contact"], host=HOST, token=TOKEN)
+        assert r_mcp.ok and r_rest.ok, (r_mcp.stderr, r_rest.stderr)
+        assert r_mcp.stdout == r_rest.stdout
+        assert "# Total: 2  Returned: 2" in r_mcp.stderr
+        assert "# Total: 2  Returned: 2" in r_rest.stderr
+
+    def test_query_meta_reconstructed_shape(self, find_mod):
+        """FMCP-15: the reconstructed _meta re-adds success and folds total in."""
+        structured = {
+            "records": [{"_id": "cid001"}],
+            "meta": {"document": "Contact", "relations": [], "warnings": [], "executionTimeMs": 1},
+            "total": 1,
+        }
+        meta = find_mod._reconstruct_query_meta(structured)
+        assert meta["success"] is True
+        assert meta["total"] == 1
+        assert meta["document"] == "Contact"
+
+    def test_query_relations_via_mcp(self, agent, mock_konecty, monkeypatch):
+        """FMCP-13: --relations maps through to the query_json relations input."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        rels = json.dumps([{"document": "Activity"}])
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["query", "Contact", "--relations", rels], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        assert isinstance(json.loads(r.stdout), list)
+
+    def test_query_no_total_semantics_preserved(self, agent, mock_konecty, monkeypatch):
+        """FMCP-13: --no-total suppresses the total line on the MCP path too."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find",
+                          ["query", "Contact", "--no-total"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        assert "# Total:" not in r.stderr
+        assert "# Returned: 2" in r.stderr
+
+    def test_query_mcp_403_falls_back_with_notice(self, agent, mock_konecty, monkeypatch):
+        """FMCP-13: MCP 403 → rows via /rest/query/json fallback + notice first."""
+        monkeypatch.delenv("KONECTY_MCP", raising=False)
+        mock_konecty.mcp_fault = 403
+        with mock_konecty.patch():
+            r = agent.run("konecty-data", "find", ["query", "Contact"], host=HOST, token=TOKEN)
+        assert r.ok, r.stderr
+        assert len(json.loads(r.stdout)) == 2  # REST still returns records
+        assert "Busca feita via API direta (REST)." in r.stderr

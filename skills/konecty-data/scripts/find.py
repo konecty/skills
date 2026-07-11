@@ -350,6 +350,39 @@ def _adapt_mcp(result: dict, output_format: str) -> None:
     _print_results(records, output_format)
 
 
+def _reconstruct_query_meta(structured: dict) -> dict:
+    """Rebuild the REST-compatible ``_meta`` payload from an MCP query result.
+
+    ``query_json`` / ``query_sql`` return ``structuredContent {records, meta,
+    total}`` where ``total`` is a *sibling* of the bare ``buildMeta`` and there
+    is no ``success`` flag. The REST NDJSON ``_meta`` line is
+    ``{success: true, ...meta, total}``; this folds ``success`` and ``total``
+    back in so ``query`` / ``sql`` output stays byte-compatible with the REST
+    fallback (FMCP-15).
+    """
+    meta = structured.get("meta") or {}
+    return {"success": True, **meta, "total": structured.get("total")}
+
+
+def _adapt_mcp_query(result: dict, output_format: str, include_total: bool = True) -> None:
+    """Print an MCP ``query_json`` / ``query_sql`` result with REST parity.
+
+    Records go to stdout (via ``_print_results``); the reconstructed REST ``_meta``
+    (``_reconstruct_query_meta``) supplies the ``# Total: N  Returned: M`` stderr
+    summary. ``--no-total`` (``include_total=False``) suppresses the total, matching
+    the REST path where the server omits the ``_meta`` total (FMCP-13, FMCP-15).
+    """
+    structured = result.get("structuredContent") or {}
+    records = structured.get("records", [])
+    meta = _reconstruct_query_meta(structured)
+    total = meta.get("total")
+    if include_total and total is not None:
+        print(f"# Total: {total}  Returned: {len(records)}", file=sys.stderr)
+    else:
+        print(f"# Returned: {len(records)}", file=sys.stderr)
+    _print_results(records, output_format)
+
+
 def _tool_find(host: str, token: str, args: argparse.Namespace) -> None:
     """Search via the MCP ``records_find`` tool (mapped from the CLI args).
 
@@ -377,6 +410,40 @@ def _tool_find(host: str, token: str, args: argparse.Namespace) -> None:
     _adapt_mcp(result, args.output)
 
 
+def _tool_query(host: str, token: str, args: argparse.Namespace) -> None:
+    """Cross-module search via the MCP ``query_json`` tool (mapped from CLI args).
+
+    ``--filter``/``--sort`` pass through unchanged (already canonical); malformed
+    JSON is rejected locally by ``_parse_json_arg`` before any network call.
+    ``--include-meta`` / ``--no-total`` are forwarded so a compliant server can
+    honor them, and ``include_total`` is echoed to the adapter for the summary.
+    """
+    fil = _parse_json_arg(args.filter, "--filter")
+    sort = _parse_sort(args.sort)
+    relations = _parse_json_arg(args.relations, "--relations")
+
+    arguments: dict = {"document": args.document}
+    if fil:
+        arguments["filter"] = fil
+    if args.fields:
+        arguments["fields"] = args.fields
+    if sort:
+        arguments["sort"] = sort
+    if args.limit is not None:
+        arguments["limit"] = args.limit
+    if args.start is not None:
+        arguments["start"] = args.start
+    if relations:
+        arguments["relations"] = relations if isinstance(relations, list) else [relations]
+    if args.include_meta:
+        arguments["includeMeta"] = True
+    if not args.include_total:
+        arguments["includeTotal"] = False
+
+    result = mcp_client.call_tool(host, token, "query_json", arguments)
+    _adapt_mcp_query(result, args.output, include_total=args.include_total)
+
+
 # ---------------------------------------------------------------------------
 # Subcommand entry points (MCP-first with REST fallback)
 # ---------------------------------------------------------------------------
@@ -391,8 +458,11 @@ def cmd_find(host: str, token: str, args: argparse.Namespace) -> None:
 
 
 def cmd_query(host: str, token: str, args: argparse.Namespace) -> None:
-    """Entry point for `query` — currently the REST path (MCP wiring lands in T7)."""
-    _rest_query(host, token, args)
+    """`query` — MCP ``query_json`` first, REST ``/rest/query/json`` fallback."""
+    _dispatch(
+        lambda: _tool_query(host, token, args),
+        lambda: _rest_query(host, token, args),
+    )
 
 
 def cmd_sql(host: str, token: str, args: argparse.Namespace) -> None:
