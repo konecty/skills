@@ -1,53 +1,28 @@
-# Konecty Meta Doctor
+# Meta Doctor — metadata integrity
 
-Validate the health and integrity of Konecty metadata.
+Validate metadata health with `meta_doctor_run` on the `konecty-admin` MCP server.
 
-## Prerequisites
+## Tool
 
-Requires **admin** credentials from **konecty-session**. User must have `admin: true`.
+`meta_doctor_run` — input: none. Output: `issues` (array of `{ id, message }`),
+`total` (number of metadata documents checked).
 
-## Workflow
+## When to run
 
-### 1. Run full health check
+- After any metadata change (document/list/view/access/pivot upsert, hook change,
+  sync apply) — offer it proactively.
+- When the user reports odd behavior that smells like broken metadata (fields not
+  rendering, events not firing, lookup errors).
+- Before/after a module teardown ([remove.md](remove.md)).
 
-```bash
-python3 scripts/meta_doctor.py check
-python3 scripts/meta_doctor.py check --format json
-```
+## Handling the report
 
-This command uses backend `POST /api/admin/meta/doctor` as the source of truth.
+- **No issues**: report "integrity check passed, N metas checked".
+- **Issues found**: list them and, for each, fix through the corresponding tool —
+  document/field problems via `meta_document_upsert`
+  ([document.md](document.md)), child metas via their upserts, dangling queue
+  references via the Namespace ([namespace.md](namespace.md)). Re-run
+  `meta_doctor_run` after fixing to confirm.
 
-### 2. Check a specific document
-
-```bash
-python3 scripts/meta_doctor.py check --document Contact
-```
-
-### 3. Check queue consistency (filtered from backend doctor report)
-
-```bash
-python3 scripts/meta_doctor.py check-queues
-```
-
-## Checks performed by backend doctor
-
-### Schema and integrity
-- Fields reference valid types
-- Lookup fields reference existing documents
-- InheritedFields reference valid fields on the target document
-- Required fields have labels
-
-### Access integrity
-- Field overrides reference fields that exist in the parent document
-
-### Queue consistency
-- `document.events` queue resources exist in `Namespace.QueueConfig.resources`
-
-### Cross-references
-- All metas reference existing parent documents
-- Lookup targets reference existing `document/composite` metas
-- Hook static checks (syntax, blocked APIs, comments, return requirements)
-
-## Script reference
-
-See [scripts/meta_doctor.py](scripts/meta_doctor.py). Stdlib only.
+Integrity concerns the doctor covers include invalid/missing meta ids, missing
+`type`/`name` discriminators, and cross-reference consistency of the metadata set.
