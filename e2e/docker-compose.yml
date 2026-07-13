@@ -130,6 +130,11 @@ services:
       # Konecty gap. Narrow the strict zone so the documented OTP flow is
       # testable here.
       - CORS_STRICT_PREFIXES=/rest/auth/
+      # The OAuth suite scripts several authorize→consent→decision flows in
+      # seconds; the default 10/min per-IP bucket on the authorize routes
+      # would 429 them.
+      - OAUTH_RATE_LIMIT_AUTHORIZE_MAX=1000
+      - OAUTH_RATE_LIMIT_TOKEN_MAX=1000
       - UI_PROXY=false
       - BODY_LIMIT=10485760
     ports:
