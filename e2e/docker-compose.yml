@@ -124,6 +124,12 @@ services:
       - DEFAULT_LOCALE=pt_BR
       - LOG_LEVEL=info
       - ALLOWED_ORIGINS=http://localhost:3200|http://localhost:5173
+      # The session_* MCP tools proxy to /api/auth/* via fastify.inject with no
+      # headers; the default strict-CORS zone (/api/|/rest/auth/) rejects those
+      # header-less internal requests ("Origin header required") — an upstream
+      # Konecty gap. Narrow the strict zone so the documented OTP flow is
+      # testable here.
+      - CORS_STRICT_PREFIXES=/rest/auth/
       - UI_PROXY=false
       - BODY_LIMIT=10485760
     ports:
