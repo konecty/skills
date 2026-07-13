@@ -1,85 +1,56 @@
-# Konecty Delete
+# Delete Records — user MCP
 
-Permanently remove **one** record at a time. Always preview before deleting.
+Permanently remove **one** record at a time with `records_delete_preview` →
+**explicit user confirmation** → `records_delete`.
 
 ## ⚠️ Irreversibility
 
-Deletion in Konecty archives the record to a `.Trash` collection and **hard-deletes it from the main collection**. It cannot be restored via the standard API.
+Deletion archives the record to a `.Trash` collection and **hard-deletes it from the
+main collection**. It cannot be restored via the standard API.
 
-## Mandatory Safety Rules
+## Mandatory safety rules
 
-1. **One record at a time** — batch deletion is not supported by this skill. Period.
-2. **Preview first** — always run `preview` before `delete` to confirm the right record.
-3. **Explicit `--confirm`** — the `delete` command is refused without the flag.
-4. **Never invent `_updatedAt`** — the script fetches it live; a stale value is rejected server-side.
+1. **Preview first** — always call `records_delete_preview` and show the user what
+   will be deleted before anything else.
+2. **Explicit user confirmation** — after the preview, ask the user to confirm the
+   deletion of that specific record. Never infer confirmation from the original
+   request ("delete contact X" is a request, not a confirmation of the previewed
+   record).
+3. **One record at a time** — no batch deletion through this skill. Period.
+4. **Never invent `_updatedAt`** — deletion is optimistically locked server-side; a
+   stale value is rejected.
 
-## Workflow
+## Flow
 
-### Step 1 — Preview the record
+### Step 1 — `records_delete_preview`
 
-```bash
-python3 skills/konecty-delete/scripts/delete.py preview <Document> <code or _id>
-```
+Input: `document`, `recordId`, optional `fields`. Output: `preview`.
 
-Shows the full record with a warning. Prints the exact `delete` command to run next.
+Show the previewed record to the user (key identifying fields at minimum) and ask
+for confirmation.
 
-### Step 2 — Delete with confirmation
+### Step 2 — `records_delete` (only after the user confirms)
 
-```bash
-python3 skills/konecty-delete/scripts/delete.py delete <Document> <code or _id> --confirm
-```
+Input: `document`, `confirm`, `ids`. Output: `deleted`.
 
-The script fetches the live `_updatedAt`, displays the record one final time, then executes the deletion.
+The delete tool requires the explicit `confirm` input and the record identification
+in `ids` — pass exactly the record that was previewed and confirmed.
 
----
-
-## Examples
-
-### Delete a test message
-
-```bash
-# Step 1: inspect
-python3 skills/konecty-delete/scripts/delete.py preview Message wyLtwR3aRntZ4a2q8
-
-# Step 2: confirm and delete
-python3 skills/konecty-delete/scripts/delete.py delete Message wyLtwR3aRntZ4a2q8 --confirm
-```
-
-### Delete a contact by code
-
-```bash
-python3 skills/konecty-delete/scripts/delete.py preview Contact 16503
-python3 skills/konecty-delete/scripts/delete.py delete Contact 16503 --confirm
-```
-
----
-
-## Server-Side Guards (Konecty enforces automatically)
+## Server-side guards (Konecty enforces automatically)
 
 | Guard | Description |
 |-------|-------------|
-| **Permission** | User must have `isDeletable` access on the module |
-| **`_updatedAt` locking** | Must match the live record — stale value = rejection |
-| **Foreign key check** | Blocks deletion if other records reference this one |
-| **Scope filter** | User can only delete records within their `deleteFilter` scope |
+| Permission | User must have `isDeletable` access on the module |
+| Optimistic locking | `_updatedAt` must match the live record |
+| Foreign keys | Deletion is blocked if other records reference this one |
+| Scope filter | User can only delete records within their `deleteFilter` scope |
 
-## Common Errors and Actions
+## Common errors and actions
 
 | Error | Cause | Action |
 |-------|-------|--------|
-| `--confirm flag is required` | Flag omitted | Add `--confirm` after reviewing `preview` |
-| `There are new version for records: ...` | Record changed after fetch | Run `preview` again to get the latest version |
-| `Cannot delete records ... because they are referenced by [Module]` | FK constraint | Remove or update the referencing records first |
-| `You don't have permission to delete records` | No `isDeletable` access | Check user permissions or ask an admin |
-| `or they don't exists` | Wrong `_id` / outside scope | Verify the record exists via `konecty-find` |
-
-## Script Reference
-
-See [scripts/delete.py](scripts/delete.py). Stdlib only.
-
-```
-delete.py preview <Document> <term>           # inspect — no changes
-delete.py delete  <Document> <term> --confirm # irreversible deletion
-```
-
-`term` is a numeric code or exact `_id`. All subcommands accept `--host` and `--token`.
+| Confirmation required | `confirm` missing | Only after explicit user approval, re-call with `confirm` |
+| `There are new version for records: ...` | Record changed after preview | Re-run the preview, show it again, re-confirm |
+| `Cannot delete records ... referenced by [Module]` | FK constraint | Tell the user which records block it; those must be handled first |
+| No permission to delete / record not found | No `isDeletable` access, wrong id, or outside scope | Verify via `records_find`; ask an admin if it's a permission issue |
+| `insufficient_scope` | Namespace read-only (`mcpUserWriteEnabled=false`) | Explain read-only mode — see [errors.md](errors.md) |
