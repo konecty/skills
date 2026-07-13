@@ -6,12 +6,14 @@
 
 # KonectySkills
 
-> **Your AI agent now speaks Konecty.**
+> **Install, inform your company URL, log in via browser — and talk to your CRM.**
 
-Agent Skills that connect AI agents like Claude Code and Cursor directly to the Konecty low-code business platform. Search records, create contacts, manage schemas, and write integrations — all with natural language, no API documentation needed.
+MCP-first skills for AI agents like Claude Code. Execution happens on **Konecty's own
+MCP servers** (`/mcp` and `/admin-mcp`); the skills teach the agent how to use them
+correctly — which tool to call, in which order, with which guardrails. No local HTTP
+scripts, no `.env` editing.
 
 [![Known Vulnerabilities](https://snyk.io/test/github/konecty/skills/badge.svg)](https://snyk.io/test/github/konecty/skills)
-[![E2E Coverage](https://img.shields.io/badge/e2e_coverage-93%25-22c55e?style=flat-square)](#e2e-testing)
 [![agentskills.io](https://img.shields.io/badge/agentskills.io-compatible-6366f1?style=flat-square)](https://agentskills.io)
 [![skills.sh](https://img.shields.io/badge/skills.sh-compatible-6366f1?style=flat-square)](https://skills.sh)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue?style=flat-square)](./LICENSE)
@@ -20,262 +22,133 @@ Agent Skills that connect AI agents like Claude Code and Cursor directly to the 
 
 ---
 
-## Quick Install
-
-One command detects your AI engine, installs all three skills, and sets up your Konecty credentials — you'll be up and running in under two minutes:
+## Quick install
 
 ```bash
 uvx --from git+https://github.com/konecty/skills konecty-skills install
 ```
 
-**Prerequisites:** Python 3.9+ and `uv` (`pip install uv` or `brew install uv`).
+The installer asks for your company's Konecty URL, validates it (`https` + the
+`/.well-known/oauth-protected-resource` probe), registers the `konecty` MCP server
+(`<url>/mcp`, user scope in Claude Code), offers the admin path, and copies the 4
+skills. On first use, Claude Code opens the browser for the OAuth login — done:
 
-### Installer Commands
+> "what open opportunities does client X have?"
+
+**Prerequisites:**
+
+- Python 3.9+ and `uv` (`pip install uv` or `brew install uv`)
+- A Konecty deployment with MCP enabled (see [Server requirements](#konecty-server-requirements))
+- Claude Code (without the `claude` CLI, the installer prints the exact `claude mcp add` commands for manual execution)
+
+### Installer commands
 
 | Command | What it does |
 |---------|--------------|
-| `install` | Detect engines → select skills → download → copy → set up credentials (OTP) → write manifest |
-| `configure` | Credentials only: write `~/.konecty/.env` (URL + OTP token) |
-| `status` | What is installed, in which engines, and whether credentials are present |
+| `install` | URL → validate → register the `konecty` MCP server → optional admin path (OTP → `konecty-admin` entry with Bearer header) → copy the 4 skills |
+| `configure` | Interim admin token only: OTP login → `~/.konecty/.env` + `konecty-admin` MCP entry |
+| `status` | Installed skills, engines, MCP registration, admin-token presence |
 | `update` | Re-fetch skills with SHA-256 protection (never overwrites local edits) |
-| `doctor` | Validate installed files vs manifest and test the Konecty connection |
-| `uninstall` | Remove installed skills (credentials kept unless `--purge` is passed) |
+| `doctor` | URL reachable, well-known + audience match (`PLATFORM_MCP_RESOURCE_URL`), MCP servers registered, admin token validity |
+| `uninstall` | Remove the skills (`--purge` also removes credentials and MCP entries) |
 
-All commands accept `--yes` / `--engine` / `--scope` / `--url` / `--ref` for non-interactive use (CI/CD, provisioning scripts).
+Re-running `install` is idempotent: existing `konecty*` entries are replaced
+(remove + add), never duplicated; pre-existing user files are never touched.
 
-### Install via Marketplace
+### Conversational setup
 
-**[skills.sh](https://skills.sh)**
-```bash
-npm i -g @agentskill.sh/cli
-npx skills add konecty/skills
-```
-
-**[OpenClaw (clawhub)](https://clawhub.io)**
-```bash
-npm i -g clawhub
-clawhub skill install konecty-data
-clawhub skill install konecty-meta
-clawhub skill install konecty-dev
-```
-
-**[Hermes (NousResearch)](https://hermes.nousresearch.com)**
-```bash
-hermes skills tap add konecty/skills
-hermes skills install konecty-data
-hermes skills install konecty-meta
-hermes skills install konecty-dev
-```
-
-### Manual Installation
-
-If you prefer to install without the CLI:
-
-```bash
-# Clone the repository
-git clone https://github.com/konecty/skills
-cd skills
-
-# Copy skills to your AI engine
-# Claude Code (project-scoped)
-cp -r skills/konecty-data  .claude/skills/
-cp -r skills/konecty-meta  .claude/skills/
-cp -r skills/konecty-dev   .claude/skills/
-
-# Claude Code (global)
-cp -r skills/konecty-data  ~/.claude/skills/
-cp -r skills/konecty-meta  ~/.claude/skills/
-cp -r skills/konecty-dev   ~/.claude/skills/
-
-# Cursor
-cp -r skills/konecty-data  .cursor/skills/
-cp -r skills/konecty-meta  .cursor/skills/
-cp -r skills/konecty-dev   .cursor/skills/
-```
+Prefer doing everything inside Claude Code? The **konecty-setup** skill covers the
+same flow conversationally: first setup, switching company/URL, re-authentication,
+and enablement troubleshooting ("set up konecty", "connect my CRM").
 
 ---
 
-## The Three Skills
+## The four skills
 
-### `konecty-data` — Data Operations
+| Skill | MCP server | What it teaches |
+|-------|------------|-----------------|
+| **konecty-data** | `konecty` (`/mcp`) | CRM data conversations: module/field discovery, search with validated filters (`filter_build`), cross-module queries (`query_json`), create, fetch-first update (`_updatedAt`), delete with preview + confirmation, files |
+| **konecty-meta** | `konecty-admin` (`/admin-mcp`) | Metadata administration: document schemas, lists, views, access profiles, pivots, hooks (validate → upsert), Namespace (incl. MCP flags), doctor, and repo↔database sync |
+| **konecty-setup** | — | Conversational setup/reconfiguration of the MCP servers; troubleshooting matrix |
+| **konecty-dev** | — *(advisory)* | Konecty integration code: official SDKs (Python/TS), REST API, hooks, recipes |
 
-Complete operations on Konecty records: OTP authentication, field discovery, and full CRUD with file management.
-
-| When to use | Example phrases |
-|-------------|----------------|
-| Authenticate / get token | "log in to Konecty", "authenticate via OTP", "open session" |
-| Discover fields and modules | "what fields does the Contact module have?", "list available modules" |
-| Search records | "find contacts created today", "filter opportunities by status", "SQL query" |
-| Create records | "create contact John Doe", "insert new opportunity", "create activity" |
-| Update records | "update status of contact #123", "change email field" |
-| Delete records | "delete record #456 from Leads module" |
-| File upload | "attach contract.pdf to the record", "upload profile picture" |
-
-**Requires:** credentials in `~/.konecty/.env` (`KONECTY_URL` + `KONECTY_TOKEN`).
+The skills **execute no HTTP** — they name the MCP tools (`records_find`,
+`query_json`, `meta_document_upsert`, …) and Konecty executes.
 
 ---
 
-### `konecty-meta` — Metadata Management *(admin)*
+## Authentication
 
-Complete management of platform schemas and configurations: documents, lists, views, access profiles, hooks, namespace config, and repo↔database sync.
-
-| When to use | Example phrases |
-|-------------|----------------|
-| Inspect schemas | "list documents", "read CRM module metadata", "inspect fields" |
-| Manage documents | "add field to module", "create document", "remove field" |
-| Configure lists and views | "add column to list", "create form view", "configure layout" |
-| Access profiles | "configure read permissions", "manage access profile" |
-| Generate hooks | "generate scriptBeforeValidation hook", "create validationScript" |
-| Configure Namespace | "configure SMTP", "set up RabbitMQ queue", "update namespace" |
-| Validate integrity | "validate metadata", "check integrity", "metadata audit" |
-| Sync | "sync metadata to production", "apply schema", "deploy metas" |
-| Remove module | "remove complete module", "delete metadata", "remove document meta" |
-
-**Requires:** **admin** credentials in `~/.konecty/.env` (user with `admin: true`).
+- **User (`konecty`)**: Claude Code's native OAuth — DCR → authorize + PKCE → token,
+  all in the browser. Scopes `read` (+ `write` when the namespace enables
+  `mcpUserWriteEnabled`).
+- **Admin (`konecty-admin`), interim path**: OTP login → `authTokenId` registered as
+  an `Authorization: Bearer` header on the MCP entry. When it expires, `konecty-setup`
+  guides the re-login.
+- **Admin, target path (OAuth)**: Konecty grants the `admin` scope at consent for
+  **trusted clients** (provisioned via `OAUTH_CLIENTS_JSON`;
+  [konecty/Konecty#453](https://github.com/konecty/Konecty/pull/453)) when the user has
+  `admin: true`. Switching is a re-registration only — nothing in the skills changes.
 
 ---
 
-### `konecty-dev` — Code Integration *(advisory)*
+## Konecty server requirements
 
-Advisory skill for writing code that integrates with Konecty — prioritizing the official SDKs (Python and TypeScript/Node), with the full REST API documented for other languages.
+Your company's Konecty must expose the MCP servers (a release shipping
+`/mcp` + `/admin-mcp`) and enable, on the **Namespace**:
 
-| When to use | Example phrases |
-|-------------|----------------|
-| Start an integration | "how to connect my app to Konecty?", "which SDK to use?", "first client" |
-| Python SDK | "Python example", "use konecty_sdk_python", "Python client" |
-| TypeScript/Node SDK | "TypeScript example", "use @konecty/sdk", "Node client" |
-| REST API (other languages) | "call API with Go", "Java integration", "HTTP client without SDK" |
-| Filters and queries | "how to filter by date?", "search operators", "query with relations" |
-| Server-side hooks | "write scriptBeforeValidation", "after-save logic", "validationScript" |
-| Recipes and patterns | "pagination", "retry", "incremental sync", "file upload flow" |
+| Flag | Effect |
+|------|--------|
+| `mcpUserEnabled` | Enables `/mcp` (503 when off) |
+| `mcpAdminEnabled` | Enables `/admin-mcp` |
+| `mcpRoleIds` | Role allowlist for MCP access — **deny-by-default** (403 `mcp_access_denied` when empty) |
+| `mcpUserWriteEnabled` | Writes over MCP (default: read-only — writes return `insufficient_scope`) |
 
-**Does not execute live operations** — generates code for you to embed in your application. For immediate operations, use `konecty-data`.
+Deployment: `PLATFORM_MCP_RESOURCE_URL` must be exactly the public `/mcp` URL (OAuth
+token audience validation). Konecty instances **without MCP** are not supported by
+this version — pin the last script-based tag of this repository.
 
 ---
 
-## Credentials
+## E2E testing
 
-### Initial Setup
+The e2e suite boots a disposable Konecty stack **built from local source** (a
+`../Konecty` worktree) and drives the documented MCP tools with a stdlib JSON-RPC
+client — every flow the skills describe has ≥1 case (find, query, create, update,
+delete preview+confirm, upload, OTP, meta read/upserts/hook/doctor/sync, guard errors,
+and the OAuth scenarios including the trusted-client admin scope).
 
 ```bash
-# Option 1: via installer (recommended — runs the full OTP flow)
-uvx --from git+https://github.com/konecty/skills konecty-skills configure
-
-# Option 2: manual
-cp .env.example .env
-# Fill in KONECTY_URL and KONECTY_TOKEN
+make e2e   # purge → build+up → wait → bootstrap MCP flags → suites → purge
 ```
 
-The `~/.konecty/.env` file is shared by all skills:
-
-```dotenv
-KONECTY_URL=https://your-instance.konecty.com
-KONECTY_TOKEN=<authId obtained via OTP login>
-```
-
-### Other Credentials
-
-| Credential | When needed | How to obtain |
-|------------|-------------|---------------|
-| `KONECTY_TOKEN` (admin) | `konecty-meta` | User with `admin: true` in Konecty |
-| `SNYK_TOKEN` | Security audit | [app.snyk.io/account](https://app.snyk.io/account) |
-| GitHub auth | Publish via `gh skill publish` | `gh auth login` (interactive, once) |
-| Socket auth | Supply chain scan | `socket login` (interactive, once) |
-| clawhub auth | Publish to OpenClaw | `clawhub login` (interactive, once) |
-
-> The Gen Agent Trust Hub audit is web-only — paste the skill URL at [ai.gendigital.com/agent-trust-hub](https://ai.gendigital.com/agent-trust-hub).
-
----
-
-## Security
-
-### Audits Performed
-
-| Tool | Result | Last verified | Details |
-|------|--------|--------------|---------|
-| **Snyk** | live badge | continuous | Badge above reflects the latest scan — [import the repo at snyk.io](https://snyk.io/test/github/konecty/skills) to activate |
-| **Gen Agent Trust Hub** | ✅ PASS | 2026-06-17 | No prompt injection, malicious payloads, or critical agent risks |
-| **Socket** | ✅ PASS | 2026-06-17 | Clean supply chain — no malicious or compromised dependencies |
-
-> Gen Agent Trust Hub and Socket are manual point-in-time checks (no live badge API). Snyk is the only continuous badge — requires the repo to be imported at [snyk.io](https://snyk.io).
-
-All scripts use **Python stdlib only** — no third-party dependencies, eliminating the largest class of supply-chain risk.
-
-### Reproducing the Audits
-
-```bash
-# Gen Agent Trust Hub — web only
-# Visit https://ai.gendigital.com/agent-trust-hub and paste the skill URL
-
-# Socket — supply chain
-npm i -g @socketsecurity/cli
-socket login
-socket scan create ./skills/konecty-data
-socket scan create ./skills/konecty-meta
-socket scan create ./skills/konecty-dev
-socket ci
-
-# Snyk Agent Scan
-export SNYK_TOKEN=<your-token>
-uvx snyk-agent-scan@latest --skills                    # all skills
-uvx snyk-agent-scan@latest ./skills/konecty-data       # specific skill
-```
-
----
-
-## E2E Testing
-
-A dockerized test suite boots a disposable Konecty stack and drives all subcommands of both operational skills via a deterministic pseudo-agent.
-
-**Current coverage: 93%** (gate `--fail-under=90`). 472 tests passing + 1 documented xfail.
-
-### Quick Start
-
-```bash
-make e2e   # purge → up → wait → coverage gate → purge (always tears down the stack)
-```
-
-**Prerequisites:** Docker (for the stack) and `uv` (the suite runs via `uv run`).
-
-### What Gets Tested
-
-| Suite | Description |
-|-------|-------------|
-| **konecty-data (live)** | Against the public `konecty/konecty:3.8.10` image: auth, modules, find, create, update |
-| **konecty-data (mock)** | Paths requiring unpublished endpoints: SQL query, lookup, delete |
-| **konecty-meta (mock)** | All 11 subcommands against a faithful mock of the `/api/admin/meta/*` contract |
-| **Security suite** | Credential fast-fail, 401 without traceback, delete/upload guards, OTP validation, injection payloads |
-| **Intent router** | Deterministic PT/EN phrase → skill-command router (no LLM, zero API cost) |
-
-### Make Targets
+**Prerequisites:** Docker, `uv`, Node 24 + Yarn (dist build), and the Konecty repo
+cloned at `../Konecty`.
 
 | Target | What it does |
 |--------|--------------|
-| `make e2e` | Full cycle: purge → up → wait → coverage → purge |
-| `make e2e-up` | Boot the stack and wait for `/liveness` |
-| `make e2e-down` | Stop the stack (keeps volumes) |
-| `make e2e-reset` | Stop and **drop volumes** — clean DB + fresh admin on next boot |
-| `make e2e-token` | Extract admin token from container logs |
-| `make e2e-run` | Run the full suite (without coverage gate) |
-| `make e2e-cov` | Run with coverage and the `≥90%` gate |
-| `make e2e-sec` | Security suite only |
-| `make e2e-infer` | Intent router only |
+| `make e2e` | Full self-contained cycle (always tears the stack down) |
+| `make e2e-src` | Creates the `e2e/.konecty-src` worktree and builds `dist/` |
+| `make e2e-up` | Image build + stack up + wait + MCP flags bootstrap |
+| `make e2e-down` / `e2e-reset` | Stop the stack (reset drops volumes — fresh admin next boot) |
+| `make e2e-token` | Extract the admin token from container logs |
+| `make e2e-run` | Run the suites against an already-running stack |
 
 ---
 
-## Repository Structure
+## Repository layout
 
 ```
-skills/              # Konecty platform skills (one folder per skill with SKILL.md)
-├── konecty-data/    # Data ops: auth, modules, find, create, update, delete, upload
-├── konecty-meta/    # Metadata: document, list, view, access, pivot, hook, namespace, sync
-└── konecty-dev/     # Advisory: Python/TS SDKs, REST API, hooks, filters, recipes
+skills/              # The 4 skills (one folder per skill: SKILL.md + references/)
+├── konecty-data/    # User-MCP guide (data)
+├── konecty-meta/    # Admin-MCP guide (metadata)
+├── konecty-setup/   # Conversational setup + troubleshooting
+└── konecty-dev/     # Advisory: SDKs, REST API, hooks, recipes
 installer/           # konecty-skills CLI (Python stdlib, uvx entry point)
-e2e/                 # Docker Compose stack for tests (MongoDB + RabbitMQ + Konecty)
-tests/e2e/           # E2E test suite (pseudo-agent + mocks + suites)
-.agents/skills/      # External skills installed via CLI (tracked in skills-lock.json)
-.specs/              # SDD specs: project, codebase analysis, feature specs
-template/            # Template for creating new skills
+e2e/                 # Docker stack (compose + bootstrap) for the e2e tests
+tests/e2e/           # E2E suites (stdlib MCP client + pytest)
+.specs/              # SDD specs: project, codebase analysis, features
+template/            # Template for new skills
 spec/                # Agent Skills standard reference
 docs/                # Documentation, ADRs, and changelog
 ```
@@ -284,34 +157,27 @@ docs/                # Documentation, ADRs, and changelog
 
 ## Development
 
-### Main Commands
-
 ```bash
-make help            # list all available targets
-make setup           # point git at .githooks (run once after cloning)
-make check           # offline gate: compile scripts + shared-files guard + installer tests
-make lint            # py_compile all skill scripts
-make installer-test  # installer unit tests (128 tests, stdlib, offline)
-make validate        # gh skill publish --dry-run on skills (validates SKILL.md)
-make audit           # codebase-intelligence + codebase-security (PR completion gate)
-make e2e             # full E2E cycle
-make clean           # remove __pycache__, .coverage, and coverage artifacts
+make help            # list all targets
+make setup           # point git at .githooks (once after cloning)
+make check           # offline gate: py_compile + installer tests
+make validate        # gh skill publish --dry-run (validates SKILL.md)
+make audit           # codebase-intelligence + codebase-security (PR gate)
+make e2e             # full e2e cycle
 ```
 
-### Creating a New Skill
+### Creating a new skill
 
-1. Create a folder under `skills/` with a short, lowercase name.
+1. Create a folder under `skills/` with a short lowercase name.
 2. Add `SKILL.md` with YAML frontmatter (`name` + `description`) and Markdown instructions.
-3. Scripts must use **Python stdlib only** — no external dependencies.
+3. Skills are **procedural guides** — execution stays on Konecty's MCP servers. If a
+   capability is missing from the MCP, the gap becomes an upstream Konecty feature,
+   never a local script (ADR).
 4. Document the change in `docs/changelog/YYYY-MM-DD_slug.md`.
 
-Refer to [template/SKILL.md](./template/SKILL.md) and follow the **skill-creator** workflow.
+See [template/SKILL.md](./template/SKILL.md) and follow the **skill-creator** workflow.
 
-### Shared-Files Invariant
-
-`scripts/auth.py` and `scripts/modules.py` are **byte-identical** across `konecty-data` and `konecty-meta`. Always edit both sides together — divergence is caught by the pre-commit hook and the `check-shared-files` GitHub Action.
-
-### Completion Gate (before any PR)
+### Completion gate (before any PR)
 
 ```bash
 make check   # offline verification
@@ -320,71 +186,32 @@ make audit   # intelligence + security (a fail verdict blocks the PR)
 
 ---
 
-## Publishing to Marketplaces
-
-Use `make publish` to publish all three skills to every marketplace at once, or individual targets per platform:
+## Publishing to marketplaces
 
 ```bash
-# Publish everywhere (after gh auth login + clawhub login)
-make publish VERSION=1.2.0 CHANGELOG="What changed"
-
-# By marketplace
-make publish-gh       VERSION=1.2.0  # GitHub via gh skill
-make publish-clawhub  VERSION=1.2.0 CHANGELOG="Auth fix"
-make publish-hermes                  # no extra params needed
+make publish VERSION=1.2.0 CHANGELOG="What changed"   # all marketplaces
+make publish-gh       VERSION=1.2.0                    # GitHub via gh skill
+make publish-clawhub  VERSION=1.2.0 CHANGELOG="..."    # OpenClaw
+make publish-hermes                                    # Hermes (NousResearch)
 ```
 
-`VERSION` auto-detects the latest git tag (`git describe --tags`); pass it explicitly to override.
+Skills appear organically on [skills.sh](https://skills.sh) once the repository is
+public with a valid `SKILL.md` (`npx skills add konecty/skills`). Anthropic/skills and
+tech-leads-club are curated via Pull Request.
 
-### skills.sh
+---
 
-Skills appear organically on [skills.sh](https://skills.sh) once the repository is public on GitHub with a valid `SKILL.md` — no separate publish step needed. To install:
+## Security
 
-```bash
-npx skills add konecty/skills
-```
-
-### GitHub (gh skill)
-
-```bash
-gh auth login                           # one-time auth
-make publish-gh VERSION=1.2.0           # publishes all three skills
-# or manually:
-cd skills/konecty-data && gh skill publish --fix
-```
-
-### OpenClaw (clawhub)
-
-```bash
-npm i -g clawhub
-clawhub login                           # one-time auth
-make publish-clawhub VERSION=1.2.0 CHANGELOG="Auth fix"
-# or manually:
-clawhub skill publish ./skills/konecty-data --slug konecty-data --version 1.2.0 --changelog "..."
-clawhub skill publish ./skills/konecty-meta --slug konecty-meta --version 1.2.0 --changelog "..."
-clawhub skill publish ./skills/konecty-dev  --slug konecty-dev  --version 1.2.0 --changelog "..."
-```
-
-### Hermes (NousResearch)
-
-```bash
-make publish-hermes                     # uses GitHub as backend
-# or manually:
-hermes skills publish skills/konecty-data --to github --repo konecty/skills
-hermes skills publish skills/konecty-meta --to github --repo konecty/skills
-hermes skills publish skills/konecty-dev  --to github --repo konecty/skills
-```
-
-### Anthropic/skills and tech-leads-club
-
-Both registries are curated via Pull Request. Fork the repository, add your skill folder, and open a PR.
+- Installer and e2e suite use **Python stdlib only** — no third-party dependencies.
+- The skills contain no executable code: `grep -rE "urllib|http.client" skills/konecty-data skills/konecty-meta` → empty.
+- Audits: Snyk (badge above), Socket (supply chain), and Gen Agent Trust Hub
+  ([ai.gendigital.com/agent-trust-hub](https://ai.gendigital.com/agent-trust-hub)).
 
 ---
 
 ## Documentation
 
-- [Development & contributing](./docs/development.md)
-- [Publishing to marketplaces](./docs/publishing.md)
 - [Architecture Decision Records (ADR)](./docs/adr/README.md)
 - [Changelog](./docs/changelog/README.md)
 - [🇧🇷 Versão em Português](./README.md)
@@ -393,8 +220,7 @@ Both registries are curated via Pull Request. Fork the repository, add your skil
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. See the [`LICENSE`](./LICENSE) file for the full text.
-
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+This project is licensed under the **GNU Affero General Public License v3.0
+(AGPL-3.0)**. See [`LICENSE`](./LICENSE) for the full text.
 
 Built with ❤️ by the [Konecty](https://konecty.com) team.
