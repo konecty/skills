@@ -1,67 +1,40 @@
-# Konecty Meta Read
+# Meta Read — inspecting metadata
 
-Read-only access to all Konecty metadata types via the admin API.
+Read metadata through the `konecty-admin` MCP server.
 
-## Prerequisites
+## `meta_read`
 
-Requires **admin** credentials from **konecty-session**: `KONECTY_URL` and `KONECTY_TOKEN` in `~/.konecty/.env`.
-The authenticated user must have `admin: true`.
+Input: `name`. Output: `meta` (full metadata object).
 
-## API Endpoints
+Reads a **document** metadata object by its name (e.g. `Contact`, `User`). The
+returned meta includes the full `fields` map and any hook code stored on the
+document (`scriptBeforeValidation`, `validationScript`, `scriptAfterSave`,
+`validationData`).
 
-All endpoints require `Authorization: <KONECTY_TOKEN>` header. All are admin-only.
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/admin/meta` | List all document/composite metas (summary) |
-| `GET /api/admin/meta/:document` | List all meta objects for a document (summary) |
-| `GET /api/admin/meta/:document/:type/:name` | Get full meta by type and name |
-| `GET /api/admin/meta/:document/hook/:hookName` | Get hook code (JS) or JSON (validationData) |
-
-## Workflow
-
-### 1. List all documents
-
-```bash
-python3 scripts/meta_read.py list
-python3 scripts/meta_read.py list --format json
+```json
+{ "name": "Contact" }
 ```
 
-### 2. Inspect all metas for a document
+Use it:
 
-```bash
-python3 scripts/meta_read.py get Contact
-```
+- before any `meta_document_upsert` (**read-before-write** — upserts replace the
+  whole object);
+- to inspect field definitions, picklist options, lookup targets;
+- to read hook code before editing it;
+- after any upsert, to verify the persisted state.
 
-Returns summary of all metas: document, lists, views, access profiles, pivots, cards.
+### Reading child metas (list/view/access/pivot) and Namespace
 
-### 3. Get a specific meta
+The admin MCP currently exposes document reads only. For child metas, the current
+definition comes from your **metadata repository** (the sync workflow's source of
+truth — see [sync.md](sync.md)) or from the state you previously wrote. When neither
+is available, ask the user for the current definition before upserting — never guess
+and overwrite (upserts are full replacements).
 
-```bash
-python3 scripts/meta_read.py get Contact --type list --name Default
-python3 scripts/meta_read.py get Contact --type view --name Default
-python3 scripts/meta_read.py get Contact --type access --name Corretor
-python3 scripts/meta_read.py get Namespace --type namespace --name Namespace
-```
+## Meta types and `_id` conventions
 
-### 4. Read hook code
-
-```bash
-python3 scripts/meta_read.py hook Contact scriptBeforeValidation
-python3 scripts/meta_read.py hook Product validationData
-python3 scripts/meta_read.py hook Contact validationScript
-python3 scripts/meta_read.py hook Contact scriptAfterSave
-```
-
-### 5. List meta types for a document
-
-```bash
-python3 scripts/meta_read.py types Contact
-```
-
-Shows all meta types and their IDs grouped by type.
-
-## Meta types
+All metadata lives in a single `MetaObjects` collection, discriminated by `type`.
+The `_id` is what you pass as `id` to the upsert tools.
 
 | Type | `_id` pattern | Example |
 |------|--------------|---------|
@@ -72,25 +45,11 @@ Shows all meta types and their IDs grouped by type.
 | `access` | `{Doc}:access:{Name}` | `Contact:access:Corretor` |
 | `pivot` | `{Doc}:pivot:{Name}` | `Contact:pivot:Default` |
 | `card` | `{Doc}:card:{Name}` | `Opportunity:card:Default` |
-| `namespace` | `Namespace` | `Namespace` |
-
-## Detailed schema reference
-
-See the Meta Schemas section below for full schema documentation with annotated examples for each type.
-
-## Script reference
-
-See [scripts/meta_read.py](scripts/meta_read.py). Stdlib only (`urllib`, `json`).
-
-All subcommands accept:
-- `--host` — overrides `KONECTY_URL`
-- `--token` — overrides `KONECTY_TOKEN`
+| `namespace` | `Namespace` | `Namespace` (singleton) |
 
 ---
 
 # Meta Schemas Reference
-
-All metadata types live in the `MetaObjects` MongoDB collection, discriminated by the `type` field.
 
 ## document
 
@@ -115,12 +74,12 @@ All metadata types live in the `MetaObjects` MongoDB collection, discriminated b
 | `indexes`                  | Record<name, Index>     | no       | MongoDB indexes                                     |
 | `indexText`                | Record<field, weight>   | no       | Text search index fields                            |
 | `events`                   | DocumentEvent[]         | no       | Queue/webhook event declarations                    |
-| `scriptBeforeValidation`   | string                  | no       | Hook JS code (injected from .js file in repo)       |
+| `scriptBeforeValidation`   | string                  | no       | Hook JS code                                        |
 | `validationScript`         | string                  | no       | Hook JS code                                        |
 | `scriptAfterSave`          | string                  | no       | Hook JS code                                        |
-| `validationData`           | object                  | no       | Hook JSON (injected from .json file in repo)        |
+| `validationData`           | object                  | no       | Hook JSON                                           |
 
-### Minimal example (from User.json)
+### Minimal example (User)
 
 ```json
 {
@@ -131,7 +90,6 @@ All metadata types live in the `MetaObjects` MongoDB collection, discriminated b
   "label": { "en": "User", "pt_BR": "Usuário" },
   "plurals": { "en": "Users", "pt_BR": "Usuários" },
   "icon": "user",
-  "description": { "en": "System users", "pt_BR": "Usuários do sistema" },
   "fields": {
     "active": {
       "type": "boolean", "name": "active",
@@ -142,21 +100,14 @@ All metadata types live in the `MetaObjects` MongoDB collection, discriminated b
       "type": "autoNumber", "name": "code",
       "label": { "en": "Code", "pt_BR": "Código" },
       "isUnique": true, "isSortable": true
-    },
-    "emails": {
-      "type": "email", "name": "emails",
-      "label": { "en": "Email", "pt_BR": "Email" },
-      "isList": true, "isSortable": true
     }
   }
 }
 ```
 
----
-
 ## list
 
-`_id` pattern: `{Document}:list:{Name}` (e.g. `Activity:list:Default`)
+`_id` pattern: `{Document}:list:{Name}`
 
 | Field            | Type                        | Required | Description                                        |
 | ---------------- | --------------------------- | -------- | -------------------------------------------------- |
@@ -164,359 +115,61 @@ All metadata types live in the `MetaObjects` MongoDB collection, discriminated b
 | `type`           | `"list"`                    | yes      | Discriminator                                      |
 | `document`       | string                      | yes      | Parent document name                               |
 | `name`           | string                      | yes      | List name                                          |
-| `label`          | `{ en, pt_BR }`             | yes      | Bilingual label                                    |
-| `plurals`        | `{ en, pt_BR }`             | yes      | Bilingual plural                                   |
+| `label` / `plurals` | `{ en, pt_BR }`          | yes      | Bilingual labels                                   |
 | `columns`        | `Record<name, Column>`      | yes      | Object-map of columns (NOT an array)               |
 | `sorters`        | `[{ term, direction }]`     | yes      | Default sort order                                 |
-| `view`           | string                      | no       | Form view to open on click (default: `"Default"`)  |
-| `filter`         | KonFilter                   | no       | Default filter                                     |
+| `view`           | string                      | no       | Form view to open on click (default `"Default"`)   |
+| `filter`         | KonFilter                   | no       | Default filter (conditions may be an object-map with `editable`/`style`) |
 | `refreshRate`    | `{ options, default }`      | yes      | Auto-refresh options (seconds, 0=off)              |
 | `rowsPerPage`    | `{ options, default }`      | yes      | Pagination options                                 |
 | `loadDataAtOpen` | boolean                     | no       | Load data immediately                              |
-| `calendars`      | Calendar[]                  | no       | Calendar view definitions                          |
-| `boards`         | Board[]                     | no       | Board/kanban definitions                           |
-| `namespace`      | string[]                    | no       | Namespace(s)                                       |
-| `icon`           | string                      | no       | Icon name                                          |
-| `menuSorter`     | number                      | no       | Menu sort                                          |
-| `group`          | string                      | no       | Menu group                                         |
+| `calendars` / `boards` | arrays                | no       | Calendar / kanban view definitions                 |
 
-### Column structure
-
-```json
-{
-  "code": {
-    "name": "code",
-    "linkField": "code",
-    "visible": true,
-    "minWidth": 60,
-    "sort": 0
-  }
-}
-```
-
-- `linkField`: maps to a field name in the parent document's `fields`
-- `visible`: shown by default
-- `sort`: column display order
-- `style`: optional styling (e.g. `colorBasedOnTime`)
-
-### Real example (Activity:list:Default)
-
-```json
-{
-  "_id": "Activity:list:Default",
-  "type": "list",
-  "document": "Activity",
-  "name": "Default",
-  "label": { "pt_BR": "Atividade", "en": "Activity" },
-  "plurals": { "en": "Activities", "pt_BR": "Atividades" },
-  "columns": {
-    "code": { "name": "code", "linkField": "code", "visible": true, "minWidth": 60, "sort": 0 },
-    "status": { "name": "status", "linkField": "status", "visible": true, "minWidth": 100, "sort": 1 },
-    "subject": { "name": "subject", "linkField": "subject", "visible": true, "minWidth": 250, "sort": 6 }
-  },
-  "filter": {
-    "match": "and",
-    "conditions": {
-      "status:in": {
-        "term": "status", "value": ["Nova", "Em Andamento"],
-        "operator": "in", "editable": true,
-        "style": { "columns": 1, "renderAs": "checkbox" },
-        "sort": 5
-      }
-    }
-  },
-  "sorters": [{ "term": "code", "direction": "desc" }],
-  "refreshRate": { "options": [0, 5, 10, 15, 30, 60], "default": 0 },
-  "rowsPerPage": { "options": [5, 10, 25, 50, 100], "default": 25 },
-  "view": "Default",
-  "loadDataAtOpen": true
-}
-```
-
----
+Column structure: `{ "code": { "name": "code", "linkField": "code", "visible": true, "minWidth": 60, "sort": 0 } }` —
+`linkField` maps to a field in the parent document.
 
 ## view (FormSchema)
 
-`_id` pattern: `{Document}:view:{Name}` (e.g. `Activity:view:Default`)
+`_id` pattern: `{Document}:view:{Name}`
 
 | Field       | Type              | Required | Description                              |
 | ----------- | ----------------- | -------- | ---------------------------------------- |
-| `_id`       | string            | yes      | `{Document}:view:{Name}`                 |
-| `type`      | `"view"`          | yes      | Discriminator                            |
-| `document`  | string            | yes      | Parent document name                     |
-| `name`      | string            | yes      | View name                                |
-| `label`     | `{ en, pt_BR }`   | yes      | Label (can use `{field}` interpolation)  |
-| `plurals`   | `{ en, pt_BR }`   | yes      | Bilingual plural                         |
+| `_id` / `type` / `document` / `name` | — | yes | As above, `type: "view"`             |
+| `label` / `plurals` | `{ en, pt_BR }` | yes    | Label supports `{field}` interpolation   |
 | `visuals`   | Visual[]          | no       | Recursive visual tree                    |
 | `parent`    | string            | no       | Parent view for inheritance              |
-| `namespace` | string[]          | no       | Namespace(s)                             |
-| `icon`      | string            | no       | Icon name                                |
 
-### Visual tree types
+Visual tree node types:
 
-- `visualGroup`: container with nested `visuals[]`, has `style.title` and `style.icon`
-- `visualSymlink`: references a field from the document; has `fieldName` and optional `style`
-- `reverseLookup`: shows related records from another document; has `field`, `document`, `list`
-
-### Real example (Activity:view:Default)
-
-```json
-{
-  "_id": "Activity:view:Default",
-  "type": "view",
-  "document": "Activity",
-  "name": "Default",
-  "label": { "en": "{code}: {type} - {subject}", "pt_BR": "{code}: {type} - {subject}" },
-  "plurals": { "en": "New Activity", "pt_BR": "Nova Atividade" },
-  "visuals": [
-    {
-      "type": "visualGroup",
-      "label": { "en": "Formulário", "pt_BR": "Formulário" },
-      "visuals": [
-        {
-          "type": "visualGroup",
-          "style": { "icon": "info-sign", "title": { "pt_BR": "Informações", "en": "Information" } },
-          "label": { "en": "Information", "pt_BR": "Informações" },
-          "visuals": [
-            { "type": "visualSymlink", "style": { "readOnlyVersion": true }, "fieldName": "code" },
-            { "type": "visualSymlink", "style": { "renderAs": "with_scroll" }, "fieldName": "type" },
-            { "type": "visualSymlink", "fieldName": "subject" }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "reverseLookup",
-      "style": { "title": { "en": "Sub-activities", "pt_BR": "Subatividades" } },
-      "field": "relatedTo",
-      "document": "Activity",
-      "list": "ForLookup"
-    }
-  ]
-}
-```
-
----
+- `visualGroup`: container with `label`, optional `style.title`/`style.icon`, nested `visuals[]`
+- `visualSymlink`: references a document field; `fieldName` + optional `style` (`readOnlyVersion`, `renderAs`, …)
+- `reverseLookup`: shows related records; `field`, `document`, `list`
 
 ## pivot
 
-`_id` pattern: `{Document}:pivot:{Name}` (e.g. `Activity:pivot:Default`)
+`_id` pattern: `{Document}:pivot:{Name}`
 
-| Field         | Type                        | Required | Description                               |
-| ------------- | --------------------------- | -------- | ----------------------------------------- |
-| `_id`         | string                      | yes      | `{Document}:pivot:{Name}`                 |
-| `type`        | `"pivot"`                   | yes      | Discriminator                             |
-| `document`    | string                      | yes      | Parent document name                      |
-| `name`        | string                      | yes      | Pivot name                                |
-| `label`       | `{ en, pt_BR }`             | yes      | Bilingual label                           |
-| `plurals`     | `{ en, pt_BR }`             | yes      | Bilingual plural                          |
-| `rows`        | PivotField[]                | no       | Row grouping fields                       |
-| `columns`     | `Record<name, Column>`      | no       | Column fields                             |
-| `values`      | PivotValue[]                | no       | Aggregated value fields                   |
-| `filter`      | KonFilter                   | no       | Default filter                            |
-| `sorters`     | `[{ term, direction }]`     | no       | Default sort                              |
-| `refreshRate` | `{ options, default }`      | no       | Auto-refresh                              |
-| `rowsPerPage` | `{ options, default }`      | no       | Pagination                                |
-| `namespace`   | string[]                    | no       | Namespace(s)                              |
-| `icon`        | string                      | no       | Icon name                                 |
-| `menuSorter`  | number                      | no       | Menu sort                                 |
-| `group`       | string                      | no       | Menu group                                |
-
-### PivotValue
-
-```json
-{ "name": "code", "linkField": "code", "visible": true, "minWidth": 50,
-  "label": { "en": "Code", "pt_BR": "Código" }, "aggregator": "count" }
-```
-
-Supported aggregators: `count`, `sum`, `avg`, `min`, `max`.
-
-### Real example (Activity:pivot:Default)
-
-```json
-{
-  "_id": "Activity:pivot:Default",
-  "type": "pivot",
-  "document": "Activity",
-  "name": "Default",
-  "label": { "en": "Report", "pt_BR": "Relatório" },
-  "plurals": { "en": "Report", "pt_BR": "Relatório" },
-  "rows": [
-    { "name": "_user.group", "linkField": "_user.group", "visible": true,
-      "label": { "en": "User", "pt_BR": "Usuário" } },
-    { "name": "_user", "linkField": "_user", "visible": true,
-      "label": { "en": "User", "pt_BR": "Usuário" } }
-  ],
-  "columns": {
-    "status": { "name": "status", "linkField": "status", "visible": true, "minWidth": 150,
-      "label": { "en": "Status", "pt_BR": "Situação" } }
-  },
-  "values": [
-    { "name": "code", "linkField": "code", "visible": true, "minWidth": 50,
-      "label": { "en": "Code", "pt_BR": "Código" }, "aggregator": "count" }
-  ],
-  "filter": {
-    "match": "and",
-    "conditions": {
-      "status:in": { "term": "status", "value": ["Nova", "Em Andamento"],
-        "operator": "in", "editable": true }
-    }
-  },
-  "sorters": [{ "term": "status", "direction": "asc" }],
-  "rowsPerPage": { "options": [100, 1000, 10000], "default": 1000 }
-}
-```
-
----
+- `rows`: array of row grouping fields (e.g. `_user.group`)
+- `columns`: object-map of column fields
+- `values`: array of `{ name, linkField, label, aggregator }` — aggregators: `count`, `sum`, `avg`, `min`, `max`
+- `filter`, `sorters`, `rowsPerPage`, `refreshRate`: same structures as list
 
 ## access
 
-`_id` pattern: `{Document}:access:{Name}` (e.g. `Contact:access:Corretor`)
-
-See the access-architecture reference (access.md) for the complete schema and resolution logic.
-
-### Minimal functional example
-
-```json
-{
-  "_id": "Contact:access:Default",
-  "type": "access",
-  "document": "Contact",
-  "name": "Default",
-  "isReadable": true,
-  "isCreatable": true,
-  "isUpdatable": true,
-  "isDeletable": false,
-  "fieldDefaults": {
-    "isReadable": true,
-    "isCreatable": true,
-    "isUpdatable": true,
-    "isDeletable": false
-  },
-  "fields": {}
-}
-```
-
----
+`_id` pattern: `{Document}:access:{Name}` — full schema and resolution logic in
+[access.md](access.md).
 
 ## namespace
 
-`_id`: always `"Namespace"` (singleton)
-
-| Field                    | Type                          | Required | Description                                  |
-| ------------------------ | ----------------------------- | -------- | -------------------------------------------- |
-| `_id`                    | string                        | yes      | `"Namespace"`                                |
-| `type`                   | `"namespace"`                 | yes      | Discriminator                                |
-| `ns`                     | string                        | yes      | Namespace identifier                         |
-| `name`                   | string                        | no       | Display name                                 |
-| `emailServers`           | `Record<key, SmtpConfig>`     | no       | SMTP servers for email hooks                 |
-| `QueueConfig`            | QueueConfig                   | no       | RabbitMQ resources and queue definitions      |
-| `storage`                | S3 or FS or Server config     | no       | File storage configuration                   |
-| `plan`                   | `{ useExternalKonsistent }`   | no       | Feature flags                                |
-| `onCreate`               | string or string[]            | no       | HTTP webhook URL(s) on record create         |
-| `onUpdate`               | string or string[]            | no       | HTTP webhook URL(s) on record update         |
-| `onDelete`               | string or string[]            | no       | HTTP webhook URL(s) on record delete         |
-| `trackUserGeolocation`   | boolean                       | no       | Track user location                          |
-| `trackUserFingerprint`   | boolean                       | no       | Track user fingerprint                       |
-| `loginExpiration`        | number                        | no       | Login expiration time                        |
-| `sessionExpirationInSeconds` | number                    | no       | Session timeout                              |
-| `dateFormat`             | string                        | no       | Date format string                           |
-| `logoURL`                | string                        | no       | Logo URL                                     |
-| `RocketChat`             | object                        | no       | Rocket.Chat integration config               |
-| `otpConfig`              | object                        | no       | OTP delivery configuration                   |
-| `export`                 | `{ largeThreshold }`          | no       | Export settings                              |
-| `public`                 | string[]                      | no       | Fields exposed without authentication        |
-| `konfront`               | object                        | no       | Portal/storefront configuration              |
-| `coldcall`               | object                        | no       | Cold call campaign configuration             |
-| `addressSource`          | `"DNE"` or `"Google"`         | no       | Address lookup provider                      |
-
-### QueueConfig structure
-
-```json
-{
-  "resources": {
-    "rabbitmq_default": {
-      "type": "rabbitmq",
-      "url": "amqp://user:pass@host:5672",
-      "queues": [
-        { "name": "acme-sync-postgres" },
-        { "name": "trigger-lead-flow" }
-      ]
-    }
-  },
-  "konsistent": ["rabbitmq_default", "konsistent"]
-}
-```
-
-### emailServers structure
-
-```json
-{
-  "smtp_acme": {
-    "host": "email-smtp.us-east-1.amazonaws.com",
-    "port": 2587,
-    "auth": { "user": "AKIA...", "pass": "..." },
-    "secure": false
-  },
-  "default": {
-    "host": "email-smtp.us-east-1.amazonaws.com",
-    "port": 2587,
-    "auth": { "user": "AKIA...", "pass": "..." }
-  }
-}
-```
-
-Referenced by hooks: `emails.push({ server: "smtp_acme", ... })`
-
-### Minimal Namespace example
-
-```json
-{
-  "_id": "Namespace",
-  "type": "namespace",
-  "ns": "acme",
-  "name": "Acme Inc.",
-  "emailServers": {
-    "default": {
-      "host": "email-smtp.us-east-1.amazonaws.com",
-      "port": 2587,
-      "auth": { "user": "...", "pass": "..." }
-    }
-  },
-  "storage": {
-    "type": "server",
-    "config": {
-      "upload": "https://blob.example.com",
-      "preview": "https://blob.example.com",
-      "headers": { "origin": "https://crm.example.com" }
-    }
-  },
-  "QueueConfig": {
-    "resources": {
-      "rabbitmq_default": {
-        "type": "rabbitmq",
-        "url": "amqp://crm:pass@rabbit-cluster:5672",
-        "queues": [{ "name": "acme-sync-postgres" }]
-      }
-    },
-    "konsistent": ["rabbitmq_default", "konsistent"]
-  },
-  "plan": { "useExternalKonsistent": true }
-}
-```
-
----
+Singleton `_id: "Namespace"`, `type: "namespace"` — full schema in
+[namespace.md](namespace.md). Updated via `meta_namespace_update` (patch), not upsert.
 
 ## composite
 
-`_id` pattern: same as `document` (e.g. `Education`)
-
-Composites have the same schema as `document` but represent embedded sub-documents that do not have their own MongoDB collection. They are referenced via `field.type: "composite"` with `field.document: "Education"`.
-
----
+Same schema as `document` but represents embedded sub-documents without their own
+collection; referenced via `field.type: "composite"` + `field.document`.
 
 ## card
 
-`_id` pattern: `{Document}:card:{Name}` (e.g. `Opportunity:card:Default`)
-
-Cards are compact view definitions used in board/kanban modes. They follow a similar structure to views but with a simplified layout optimized for card display.
+`{Document}:card:{Name}` — compact view definitions for board/kanban modes, similar
+to views with a simplified layout.

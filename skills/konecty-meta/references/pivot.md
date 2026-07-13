@@ -1,33 +1,24 @@
-# Konecty Meta Pivot
+# Meta Pivot — report definitions
 
-Manage pivot-type metadata definitions (rows, columns, values, aggregators, filters).
+Manage pivot metas with `meta_pivot_upsert` on the `konecty-admin` MCP server.
 
-## Prerequisites
+## Tool
 
-Requires **admin** credentials from **konecty-session**. User must have `admin: true`.
+`meta_pivot_upsert` — input: `id` (`{Document}:pivot:{Name}`, e.g.
+`Activity:pivot:Default`), `pivot` (the **complete** pivot meta). Output: `result`.
 
-## Workflow
+**Full-replace semantics**: send the whole definition; start from the current one
+(see [read.md](read.md)).
 
-### 1. Show a pivot definition
+## Structure essentials
 
-```bash
-python3 scripts/meta_pivot.py show Activity Default
-```
-
-### 2. Upsert full pivot
-
-```bash
-python3 scripts/meta_pivot.py upsert Activity Default --file pivot.json
-```
-
-## Key concepts
-
-- `_id` pattern: `{Document}:pivot:{Name}`
-- `rows`: array of row grouping fields (e.g. `_user.group`, `_user`)
-- `columns`: object-map of column fields
-- `values`: array of aggregated value definitions with `aggregator` (count, sum, avg, min, max)
-- `filter`, `sorters`, `rowsPerPage`, `refreshRate`: same structure as list metas
-
-## Script reference
-
-See [scripts/meta_pivot.py](scripts/meta_pivot.py). Stdlib only.
+- `_id` = same as `id`; `type: "pivot"`; `document`; `name`; bilingual
+  `label`/`plurals`.
+- `rows`: array of row grouping fields —
+  `{ "name": "_user.group", "linkField": "_user.group", "visible": true, "label": {...} }`.
+- `columns`: **object-map** of column fields (same shape as list columns).
+- `values`: array of aggregated values —
+  `{ "name": "code", "linkField": "code", "visible": true, "label": {...}, "aggregator": "count" }`.
+  Aggregators: `count`, `sum`, `avg`, `min`, `max`.
+- `filter`, `sorters`, `rowsPerPage`, `refreshRate`: same structures as list metas
+  ([list.md](list.md)).

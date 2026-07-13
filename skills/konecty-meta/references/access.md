@@ -1,95 +1,38 @@
-# Konecty Meta Access
+# Meta Access — permission profiles
 
-Manage access-type metadata definitions (permissions, field access, filters, menu control).
+Manage access profiles with `meta_access_upsert` on the `konecty-admin` MCP server.
 
-## Prerequisites
+## Tool
 
-Requires **admin** credentials from **konecty-session**. User must have `admin: true`.
+`meta_access_upsert` — input: `id` (`{Document}:access:{Name}`, e.g.
+`Contact:access:Corretor`), `access` (the **complete** access meta). Output: `result`.
 
-## Workflow
+**Full-replace semantics**: a partial payload erases permissions you omit. Start
+from the current definition (metadata repo or user-provided — see
+[read.md](read.md)), change only what was asked, send the whole object. Permission
+changes are security-sensitive — restate to the user exactly what will change before
+upserting.
 
-### 1. Show an access profile
-
-```bash
-python3 scripts/meta_access.py show Contact Corretor
-python3 scripts/meta_access.py show Contact Default
-```
-
-### 2. List field permissions
-
-```bash
-python3 scripts/meta_access.py permissions Contact Corretor
-```
-
-### 3. Set a field permission
-
-```bash
-python3 scripts/meta_access.py set-field Contact Corretor status --create true --read true --update false --delete false
-```
-
-### 4. Set a document-level flag
-
-```bash
-python3 scripts/meta_access.py set-flag Contact Corretor --isCreatable true --isDeletable false
-```
-
-### 5. Upsert full access profile
-
-```bash
-python3 scripts/meta_access.py upsert Contact Corretor --file access.json
-```
-
-## Key concepts
-
-- `_id` pattern: `{Document}:access:{Name}`
-- See the MetaAccess Architecture section below for full architecture documentation
-- Permission resolution: field-specific override → `fieldDefaults` → document-level flags
-- `readFilter` / `updateFilter`: KonFilter auto-injected on all queries for this profile
-- `$user` dynamic value resolves to the current user's `_id`
-- `hideListsFromMenu` / `hidePivotsFromMenu`: hide specific views from sidebar
-
-## Script reference
-
-See [scripts/meta_access.py](scripts/meta_access.py). Stdlib only.
-
----
-
-# MetaAccess — Architecture Reference
-
-## MetaAccess Schema
-
-Every access profile is a `MetaObjects` document with `type: "access"`.
-
-`_id` pattern: `{Document}:access:{Name}` (e.g. `Contact:access:Corretor`)
+## MetaAccess schema
 
 | Field              | Type                                             | Required | Description                                        |
 | ------------------ | ------------------------------------------------ | -------- | -------------------------------------------------- |
 | `_id`              | string                                           | yes      | `{Document}:access:{Name}`                         |
 | `document`         | string                                           | yes      | Document this access applies to                    |
-| `name`             | string                                           | yes      | Human-readable profile name                        |
+| `name`             | string                                           | yes      | Profile name                                       |
 | `type`             | `"access"`                                       | yes      | Discriminator                                      |
-| `isReadable`       | boolean                                          | no       | Document-level: can read records at all?           |
-| `isCreatable`      | boolean                                          | no       | Document-level: can create records?                |
-| `isUpdatable`      | boolean                                          | no       | Document-level: can update records?                |
-| `isDeletable`      | boolean                                          | no       | Document-level: can delete records?                |
-| `fieldDefaults`    | `{ isReadable, isCreatable, isUpdatable, isDeletable }` | yes | Default permission for all fields not listed in `fields` |
-| `fields`           | `Record<fieldName, FieldAccess>`                 | yes      | Per-field overrides (see below)                    |
-| `changeUser`       | boolean                                          | no       | Can this profile reassign `_user` on a record?     |
-| `readFilter`       | KonFilter with optional `allow`                  | no       | Auto-injected filter on all reads                  |
-| `updateFilter`     | KonFilter with optional `allow`                  | no       | Auto-injected filter on all updates                |
-| `changeUserFilter` | KonFilter                                        | no       | Filter applied when changing record owner           |
+| `isReadable` / `isCreatable` / `isUpdatable` / `isDeletable` | boolean | no | Document-level operation gates            |
+| `fieldDefaults`    | `{ isReadable, isCreatable, isUpdatable, isDeletable }` | yes | Default permission for fields not listed in `fields` |
+| `fields`           | `Record<fieldName, FieldAccess>`                 | yes      | Per-field overrides                                |
+| `changeUser`       | boolean                                          | no       | Can reassign `_user` on a record                   |
+| `readFilter` / `updateFilter` | KonFilter                             | no       | Auto-injected filter on all reads / updates        |
+| `changeUserFilter` | KonFilter                                        | no       | Filter applied when changing record owner          |
 | `replaceUser`      | boolean                                          | no       | Replace `_user` with current user on update        |
-| `hideListsFromMenu`  | string[]                                       | no       | List names hidden from sidebar menu                |
-| `hidePivotsFromMenu` | string[]                                       | no       | Pivot names hidden from sidebar menu               |
-| `menuSorter`       | number or Record<string, number>                 | no       | Override sidebar sort order                        |
-| `export`           | `Record<format, context[]>`                      | no       | Allowed export formats (e.g. `{ html: ["view","list"] }`) |
-| `exportLarge`      | `Record<format, context[]>`                      | no       | Allowed large export formats                       |
-| `namespace`        | string[]                                         | no       | Namespace(s) this profile belongs to               |
+| `hideListsFromMenu` / `hidePivotsFromMenu` | string[]                | no       | Views hidden from the sidebar                      |
+| `export` / `exportLarge` | `Record<format, context[]>`                | no       | Allowed export formats                             |
 | `label`            | `{ en, pt_BR }`                                  | no       | Bilingual label                                    |
 
 ### FieldAccess structure
-
-Each entry in `fields` is a map of operation to permission:
 
 ```json
 {
@@ -102,11 +45,10 @@ Each entry in `fields` is a map of operation to permission:
 }
 ```
 
-Each operation key (`CREATE`, `READ`, `UPDATE`, `DELETE`) can have:
-- `allow: boolean` — explicit grant/deny
-- `condition: KonCondition` — conditional permission evaluated at runtime against the record
+Each operation key can carry `allow: boolean` and/or `condition: KonCondition`
+(evaluated at runtime against the record — row-level field visibility).
 
-### KonFilter in readFilter / updateFilter
+### readFilter / updateFilter
 
 ```json
 {
@@ -118,107 +60,29 @@ Each operation key (`CREATE`, `READ`, `UPDATE`, `DELETE`) can have:
 }
 ```
 
-Dynamic values: `$user` (current user `_id`), `$group` (current user group).
+Dynamic values: `$user` (current user `_id`), `$group` (user's group). The backend
+merges this filter into every query for the document/user combination.
 
-## Access Resolution — Step by Step
+## Resolution logic (how Konecty applies profiles)
 
-The function `getAccessFor(documentName, user)` resolves which access profile applies:
+**Profile resolution** (`getAccessFor`): `user.access[documentName]` → falls back to
+`user.access.defaults` → `"Default"`. `false` denies; names resolve to
+`{Document}:access:{name}` then `Default:access:{name}`; first match wins; no match
+denies.
 
-```
-1. user.access is null?
-   → set user.access = { defaults: "Default" }
+**Field permission resolution** — 5 layers:
 
-2. user.access.defaults is null?
-   → set user.access.defaults = "Default"
+1. Start all-true.
+2. `fields[fieldName].{OP}.allow` when defined.
+3. Otherwise `fieldDefaults` (`isDeletable` always comes from `fieldDefaults`).
+4. Document-level flags are a **hard ceiling** — `isUpdatable !== true` at document
+   level forces every field non-updatable regardless of overrides.
+5. Result `{ isReadable, isCreatable, isUpdatable, isDeletable }`.
 
-3. user.access[documentName] is null?
-   → set it to user.access.defaults
+Backend enforcement: unreadable fields are stripped from every read (`_id` always
+preserved); `readFilter`/`updateFilter` are injected into every query.
 
-4. accessName = user.access[documentName]
-   → if false:  DENY (return false)
-   → if true:   use user.access.defaults
-
-5. accessName is string or string[]:
-   → normalize to array
-   → for each name: try MetaObject.Access["{Document}:access:{name}"]
-   → if not found: try MetaObject.Access["Default:access:{name}"]
-   → first match wins → return MetaAccess
-   → no match: DENY (return false)
-```
-
-## Field Permission Resolution — 5 Layers
-
-The function `getFieldPermissions(metaAccess, fieldName)` resolves per-field permissions:
-
-```
-1. Start with all permissions = true
-
-2. Check fields[fieldName].{OP}.allow
-   → if defined: use it
-   → if not defined: fall through to step 3
-
-3. Use fieldDefaults.{isUpdatable|isCreatable|isReadable}
-   (isDeletable always comes from fieldDefaults, never per-field)
-
-4. Apply document-level override:
-   → if metaAccess.isUpdatable !== true → isUpdatable = false
-   → if metaAccess.isCreatable !== true → isCreatable = false
-   → if metaAccess.isDeletable !== true → isDeletable = false
-   → if metaAccess.isReadable  !== true → isReadable  = false
-
-5. Result: { isUpdatable, isCreatable, isDeletable, isReadable }
-```
-
-Document-level flags (layer 4) act as a hard ceiling — if `isUpdatable` is `false` at the document level, no field can be updatable regardless of `fieldDefaults` or per-field overrides.
-
-## Conditional Field Access
-
-When `fields[fieldName].{OP}.condition` is defined, the condition is evaluated against the current record at runtime using `filterConditionToFn`. If the condition evaluates to `false`, the field is treated as not having that permission for the current record.
-
-This enables row-level field visibility: a field may be readable in general but hidden for specific records based on their data.
-
-## Backend Enforcement
-
-### removeUnauthorizedDataForRead
-
-Called before returning data to the client. For each field in the result:
-1. Get `getFieldPermissions` → if `isReadable !== true` → strip field
-2. Get `getFieldConditions` → if `READ` condition exists → evaluate against the record → strip if `false`
-
-Only `_id` is always preserved.
-
-### readFilter / updateFilter injection
-
-When `metaAccess.readFilter` is defined, the backend merges it into every MongoDB query for that document/user combination. The user can only see records matching the filter. Same logic for `updateFilter` on write operations.
-
-### checkMetaOperation
-
-Separate from data access. Controls who can create/update/delete **metadata** (not data records). Uses `user.access.meta` (not `user.access[document]`). The new admin-only API endpoints bypass this entirely by checking `user.admin === true`.
-
-## UI Consumption
-
-### useViewConfig (list/form rendering)
-
-1. Loads `docSchema`, `listSchema`, `formSchema`, `cardSchema` from Redux `metas` state
-2. Calls `getAccessFor(document, userData, metas)` to resolve the user's access profile
-3. Filters `docSchema.fields` to keep only fields where `getFieldPermissions → isReadable === true`
-4. Filters `listSchema.columns` to keep only columns where `getFieldPermissions(column.linkField) → isReadable === true`
-5. Returns schemas with only readable fields/columns
-
-### useFieldConfig (individual field rendering)
-
-1. Calls `getAccessFor` then `getFieldPermissions` for the field
-2. If `isReadable === false` → returns `null` (field not rendered at all)
-3. Determines `isReadOnly`:
-   - `field.type === "readonly"` or `field.readonly === true`
-   - `style.readOnlyVersion === true` (from form view visual)
-   - `fieldType.input === InputType.ReadOnly`
-   - `isUpdatable === false && isCreatable === false`
-4. Special case for lookup fields: if field is readable and editable, checks if the user has read access to the **target document** — if not, lookup becomes read-only
-
-## Real-World Example
-
-`Contact:access:Corretor` (acme-metas):
+## Real-world example
 
 ```json
 {
@@ -226,24 +90,13 @@ Separate from data access. Controls who can create/update/delete **metadata** (n
   "document": "Contact",
   "name": "Corretor",
   "type": "access",
-  "isCreatable": true,
-  "isDeletable": false,
-  "isReadable": true,
-  "isUpdatable": true,
-  "changeUser": true,
-  "replaceUser": true,
-  "fieldDefaults": {
-    "isUpdatable": true,
-    "isReadable": true,
-    "isDeletable": false,
-    "isCreatable": true
-  },
+  "isCreatable": true, "isReadable": true, "isUpdatable": true, "isDeletable": false,
+  "changeUser": true, "replaceUser": true,
+  "fieldDefaults": { "isReadable": true, "isCreatable": true, "isUpdatable": true, "isDeletable": false },
   "fields": {
     "activeOpportunities": {
-      "CREATE": { "allow": false },
-      "READ": { "allow": true },
-      "UPDATE": { "allow": false },
-      "DELETE": { "allow": false }
+      "CREATE": { "allow": false }, "READ": { "allow": true },
+      "UPDATE": { "allow": false }, "DELETE": { "allow": false }
     }
   },
   "readFilter": {
@@ -253,22 +106,10 @@ Separate from data access. Controls who can create/update/delete **metadata** (n
       { "term": "type", "value": ["Construtora"], "operator": "in" }
     ]
   },
-  "changeUserFilter": {
-    "match": "or",
-    "conditions": [
-      { "term": "_user._id", "value": "$user", "operator": "equals" }
-    ]
-  },
-  "export": { "html": ["view","list","pivot"], "pdf": ["view","list","pivot"] },
-  "hideListsFromMenu": ["CustomerJourney", "SavedFilter"],
-  "hidePivotsFromMenu": ["Default", "CustomerJourney", "SavedFilter"]
+  "hideListsFromMenu": ["CustomerJourney", "SavedFilter"]
 }
 ```
 
-Reading this profile:
-- Corretor can create, read, and update Contact records, but not delete
-- All fields are readable and updatable by default (`fieldDefaults`)
-- `activeOpportunities` is explicitly read-only (CREATE/UPDATE/DELETE denied)
-- `readFilter` restricts visibility: Corretor sees only their own contacts (`_user._id = $user`) OR contacts of type "Construtora"
-- `changeUser` + `changeUserFilter`: can reassign ownership only on their own contacts
-- Some lists and pivots are hidden from the sidebar menu
+Reading it: Corretor creates/reads/updates but never deletes Contacts; all fields
+default open except `activeOpportunities` (read-only); sees only own contacts or
+type "Construtora"; some lists hidden from the menu.
