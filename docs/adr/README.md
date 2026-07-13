@@ -50,6 +50,8 @@ docs/adr/
 | 0002 | [Estrutura do repositório](./0002-estrutura-repositorio.md) | Aceito     | 2026-03-16 |
 | 0003 | [Documentação e changelog obrigatórios](./0003-documentacao-changelog-obrigatorios.md) | Aceito     | 2026-03-16 |
 | 0004 | [Konecty Meta Skills](./0004-konecty-meta-skills.md) | Aceito     | 2026-03-16 |
+| 0005 | [Exemplos de projetos de referência são padrões, não conteúdo](./0005-reference-examples-patterns-not-content.md) | Aceito     | 2026-06-17 |
+| 0006 | [MCP-first: o MCP do Konecty executa, as skills guiam](./0006-mcp-first-skills.md) | Aceito     | 2026-07-13 |
 
 ---
 

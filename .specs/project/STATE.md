@@ -4,6 +4,11 @@
 
 ## Current focus
 
+- **Feature EXECUTED (branch `feat/mcp-first`, 28 tasks / 4 batches):** `mcp-first` — the architectural shift to MCP-first (ADR-0006). Konecty PR: [konecty/Konecty#453](https://github.com/konecty/Konecty/pull/453) (admin OAuth scope for trusted clients, open). Skills rewritten as thin guides (zero HTTP scripts), `konecty-setup` created, installer registers the MCP servers, e2e harness rebuilt MCP-oriented (39 cases green from clean `make e2e`). Specs: `.specs/features/mcp-first/`.
+- **Upstream findings from the e2e batch (report with #453 follow-up):** (1) `session_*` MCP tools proxy `/api/auth/*` via header-less `fastify.inject` — the default strict-CORS zone rejects them ("Origin header required"); e2e narrows `CORS_STRICT_PREFIXES`, production deployments would hit it. (2) `records_update` optimistic-lock *conflict* check is commented out (`api/update.ts:234-257`) — stale `_updatedAt` succeeds. (3) `file_upload`/`file_delete` apply the change but misreport error (bare-record success return vs `result.success !== true` check). (4) `records_delete` only passes the lock check with the `{$date: ...}` envelope — the plain-string `_updatedAt` accepted by the schema always fails the version diff.
+
+## Previous focus (history)
+
 - **Feature EXECUTED (PR #2 open):** `konecty-dev` — third skill, advisory. `SKILL.md` (lean router, description 912 chars) + 8 references (~2.5k lines, signatures verified against the real SDKs/server) written by parallel Sonnet subagents. Cross-links 100% resolve; `make check` green; `make validate` passes (the `name does not match directory "."` error is a `gh skill` env quirk affecting konecty-data too); `make audit` warn/warn (no fail). Specs: `.specs/features/konecty-dev/`. PR #2 = feat/konecty-skills-consolidation → main (the consolidation is the project's intended new main).
 - **Client-name purge (D13).** A client name was found in 6 pre-existing tracked files (konecty-meta references + 1 changelog) — pre-existing debt, not from konecty-dev (its files were clean). Resolution (user decision 2026-06-17): (1) working tree anonymized to generic placeholders (`acme`, `*.example.com`); (2) git history rewritten via `uvx git-filter-repo --replace-text` to purge the name from all past commits → **0 occurrences in history**. The codename↔real-name map lives only in git-ignored `SOURCES.local.md`; never write the literal name in a tracked file (this STATE entry itself was once a leak — keep it generic). Policy: ADR-0005.
   - **Incident + recovery (logged for honesty):** a first rewrite was run against a stale *local* `main` and force-pushed, which momentarily reverted the collaborator's merged PR #1 from public `main`. Detected and **immediately restored** `origin/main` to its original commit (no data lost). The correct purge was then prepared in an **isolated clone**, rewriting all three branches in one consistent pass — verified 0 name occurrences in history AND the PR #1 merge + the collaborator's skill preserved. Backup bundle: `/tmp/konecty-skills-prefilter-backup.bundle`.
@@ -11,6 +16,17 @@
 - **Feature COMPLETE:** `e2e-harness` — dockerized Konecty stack + pseudo-agent driving every skill subcommand. **93% line coverage** of the skill scripts (gate `--fail-under=90`), 472 tests passing + 1 documented xfail. Both completion-gate audits pass (intelligence + security = `warn`, no `fail`). konecty-data tested live on 3.8.10 where the public image agrees; the drifted/meta surface covered by the faithful `MockKonecty`. Live swap for konecty-meta deferred to a PR-299 image (D8). Spec: `.specs/features/e2e-harness/`.
 
 ## Decisions
+
+### 2026-07-13 — MCP-first architecture (feature: mcp-first, ADR-0006)
+
+- **D1. MCP-first: skills never ship HTTP clients.** Execution lives on Konecty's own MCP servers (`/mcp` user, `/admin-mcp` admin); skills are procedural guides naming the tools (`records_*`, `query_*`, `meta_*`, …). The consumer contract is `Konecty/docs/en/mcp.md` — condense, never contradict. `grep -rE "urllib|http.client" skills/konecty-{data,meta}` must stay empty.
+- **D2. MCP server naming convention:** `konecty` and `konecty-admin`, registered `--transport http --scope user`. Stable names → idempotent re-setup (remove + add, never duplicate).
+- **D3. Gaps-go-upstream policy.** Missing MCP capability = documented gap in the skill + robust feature request in the Konecty repo. Never an improvised local/REST workaround. First instance: admin OAuth scope (#453); still-open instance: full-module deletion tool.
+- **D4. Trusted client via `OAUTH_CLIENTS_JSON` only.** The `admin` scope is grantable at consent only for clients provisioned with `trustedFirstParty: true` through the env seed (never DCR), with `admin ∈ allowedScopes` AND `user.admin === true` AND explicit opt-in at consent. Caveat: setting `OAUTH_CLIENTS_JSON` REPLACES the default seeded clients.
+- **D5. Admin interim auth = OTP `authTokenId` as Bearer header** on the `konecty-admin` entry; `~/.konecty/.env` is now ONLY that interim token store. When Konecty ships #453, switching is a re-registration only (no skill content change).
+- **D6. Shared-files invariant dissolved** (guard, Action, make target removed) — its subject (the scripts) no longer exists.
+- **D7. e2e builds Konecty from local source** (`e2e/.konecty-src` worktree of `../Konecty`, branch of #453) — only way to e2e the upstream feature pre-release. Coverage-% gate replaced by suite pass/fail (measured artifact gone). Stack quirk: recreating only the konecty container loses the admin password (logged on first boot) — always `e2e-reset` for a fresh boot.
+- **D8. Konecty without MCP is unsupported** from this version; README points users to the last script-based tag.
 
 ### 2026-06-17 — konecty-dev skill design (feature: konecty-dev)
 
@@ -75,5 +91,9 @@ Probed live against a fresh `konecty/konecty` stack on alt ports (:3200).
 
 ## Deferred ideas
 
-- **Fully-live e2e for the drifted paths** (query/json+relations, meta API) against a Konecty image built from PR #299 / the team's target version — swap mock transport for live (D8, D9).
-- Publishing the harness as CI (GitHub Action) once green locally.
+- **Full-module deletion MCP tool** in Konecty (today `konecty-meta` remove.md documents the gap + manual path) — gaps-go-upstream.
+- **Default trusted client shipped by Konecty** (e.g. a first-party `claude-code-admin`) so deployments don't need the `OAUTH_CLIENTS_JSON` recipe by hand.
+- **Publishing the e2e harness as CI** (GitHub Action) — needs the Konecty source checkout strategy resolved for CI runners.
+- **Consent UI change in the external UI repo** (admin checkbox unchecked + risk warning) — API contract pinned by Konecty tests; coordination note recorded in the Konecty spec + mcp.md.
+- **Re-run the e2e suites against the next published Konecty image** (vs the local-source build) to catch works-on-main-only drift.
+- ~~Fully-live e2e for the drifted paths (PR #299)~~ — superseded by the MCP-first harness (2026-07-13).
