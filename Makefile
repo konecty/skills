@@ -49,16 +49,27 @@ clean: ## Remove Python and coverage artifacts
 	@echo "cleaned"
 
 ## ─── E2E harness (dockerized Konecty + pseudo-agent) ──────────────────────
-.PHONY: e2e-up e2e-down e2e-reset e2e-wait e2e-token e2e-run e2e-cov e2e-sec e2e-infer e2e
+.PHONY: e2e-src e2e-up e2e-down e2e-reset e2e-wait e2e-token e2e-run e2e-cov e2e-sec e2e-infer e2e
 
-E2E_COMPOSE := docker compose -f e2e/docker-compose.yml
-E2E_URL     ?= http://localhost:3200
-E2E_PYTEST  := uv run --with pytest --with coverage python -m
-E2E_COV     := uv run --with coverage python -m coverage
+E2E_COMPOSE     := docker compose -f e2e/docker-compose.yml
+E2E_URL         ?= http://localhost:3200
+E2E_PYTEST      := uv run --with pytest --with coverage python -m
+E2E_COV         := uv run --with coverage python -m coverage
+KONECTY_REPO    ?= ../Konecty
+KONECTY_E2E_REF ?= feat/oauth-admin-scope-trusted-clients
+E2E_SRC         := e2e/.konecty-src
 
-e2e-up: ## Boot the disposable Konecty stack and wait until healthy
-	$(E2E_COMPOSE) up -d
-	@python3 e2e/scripts/wait_for_konecty.py --url $(E2E_URL) --timeout 180
+e2e-src: ## Create/refresh the Konecty source worktree and build dist/ (docker build context)
+	@if [ ! -e $(E2E_SRC)/.git ]; then \
+		git -C $(KONECTY_REPO) worktree add --detach $(CURDIR)/$(E2E_SRC) $(KONECTY_E2E_REF); \
+	fi
+	@cd $(E2E_SRC) && yarn install --frozen-lockfile --non-interactive && yarn build
+
+e2e-up: ## Build the Konecty image from source, boot the stack, wait, bootstrap MCP flags
+	@[ -e $(E2E_SRC)/.git ] || $(MAKE) e2e-src
+	$(E2E_COMPOSE) up -d --build
+	@python3 e2e/scripts/wait_for_konecty.py --url $(E2E_URL) --timeout 300
+	@python3 e2e/scripts/bootstrap_mcp.py
 
 e2e-down: ## Stop the e2e stack (keeps volumes)
 	$(E2E_COMPOSE) down
@@ -113,13 +124,12 @@ publish: validate publish-gh publish-clawhub publish-hermes ## Publish to all ma
 
 ## ─── E2E harness (dockerized Konecty + pseudo-agent) ──────────────────────
 
-e2e: ## Self-contained run: purge -> up -> wait -> coverage gate -> purge (always tears down, even on failure/interrupt)
+e2e: ## Self-contained run: purge -> build+up -> wait -> bootstrap -> suites -> purge (always tears down)
+	@[ -e $(E2E_SRC)/.git ] || $(MAKE) e2e-src
 	@set -e; \
 	trap '$(E2E_COMPOSE) down -v >/dev/null 2>&1 || true' EXIT INT TERM; \
 	$(E2E_COMPOSE) down -v; \
-	$(E2E_COMPOSE) up -d; \
-	python3 e2e/scripts/wait_for_konecty.py --url $(E2E_URL) --timeout 180; \
-	$(E2E_PYTEST) coverage run -m pytest tests/e2e/ -q; \
-	$(E2E_COV) report --show-missing --fail-under=90; \
-	$(E2E_COV) html >/dev/null && $(E2E_COV) xml >/dev/null; \
-	echo "coverage html: tests/coverage_html/index.html"
+	$(E2E_COMPOSE) up -d --build; \
+	python3 e2e/scripts/wait_for_konecty.py --url $(E2E_URL) --timeout 300; \
+	python3 e2e/scripts/bootstrap_mcp.py; \
+	$(E2E_PYTEST) pytest tests/e2e/ -q
