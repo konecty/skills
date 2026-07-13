@@ -97,7 +97,10 @@ class TestCmdStatus(unittest.TestCase):
         self._seed_manifest()
 
         buf = io.StringIO()
-        with patch("sys.stdout", buf):
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
             rc = main(["status"])
 
         self.assertEqual(rc, 0)
@@ -114,7 +117,10 @@ class TestCmdStatus(unittest.TestCase):
         self._seed_manifest(extra_root=other_root)
 
         buf = io.StringIO()
-        with patch("sys.stdout", buf):
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
             rc = main(["status", "--all"])
 
         self.assertEqual(rc, 0)
@@ -152,7 +158,10 @@ class TestCmdStatus(unittest.TestCase):
         env_path.write_text("KONECTY_URL=https://h.example\n")
 
         buf = io.StringIO()
-        with patch("sys.stdout", buf):
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
             rc = main(["status"])
 
         self.assertEqual(rc, 0)
@@ -160,6 +169,38 @@ class TestCmdStatus(unittest.TestCase):
         # url is set, token is missing
         self.assertIn("url=set", out)
         self.assertIn("token=missing", out)
+
+    # --- T20: MCP registration shown in status --------------------------------
+
+    def test_status_shows_mcp_registration(self) -> None:
+        """status lists registered konecty MCP servers when the CLI is present."""
+        self._seed_manifest()
+
+        buf = io.StringIO()
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=True),
+            patch("konecty_skills.mcp_config.list_servers", return_value=["konecty", "konecty-admin"]),
+            patch("sys.stdout", buf),
+        ):
+            rc = main(["status"])
+
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertIn("MCP     : konecty, konecty-admin", out)
+
+    def test_status_cli_absent_notes_it(self) -> None:
+        """status degrades gracefully when the claude CLI is missing."""
+        self._seed_manifest()
+
+        buf = io.StringIO()
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
+            rc = main(["status"])
+
+        self.assertEqual(rc, 0)
+        self.assertIn("MCP     : claude CLI not found", buf.getvalue())
 
 
 def _probe_ok_status(url: str, timeout: int = 10) -> dict:

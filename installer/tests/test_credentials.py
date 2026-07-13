@@ -1,19 +1,18 @@
-"""Unit tests for konecty_skills.credentials (T7)."""
+"""Unit tests for konecty_skills.credentials (T7; trimmed to the interim
+admin-token role in T20 — the auth.py-subprocess flow and its tests are gone)."""
 from __future__ import annotations
 
 import os
 import stat
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from konecty_skills.credentials import (
     current_env,
     otp_login,
     request_otp,
-    run_otp,
     validate_url,
     verify_otp,
     write_env,
@@ -44,92 +43,6 @@ class TestValidateUrl(unittest.TestCase):
 
     def test_rejects_no_scheme(self):
         self.assertFalse(validate_url("example.com"))
-
-
-class TestRunOtpSuccess(unittest.TestCase):
-    """run_otp returns True when both subprocess calls succeed."""
-
-    def _make_ok(self):
-        m = MagicMock()
-        m.returncode = 0
-        return m
-
-    @patch("builtins.input", return_value="123456")
-    @patch("subprocess.run")
-    def test_returns_true_on_success_email(self, mock_run, _mock_input):
-        mock_run.return_value = self._make_ok()
-        result = run_otp("https://host", Path("/fake/auth.py"), "user@example.com")
-        self.assertTrue(result)
-        self.assertEqual(mock_run.call_count, 2)
-        # First call: request-otp with --email
-        first_cmd = mock_run.call_args_list[0][0][0]
-        self.assertIn("request-otp", first_cmd)
-        self.assertIn("--email", first_cmd)
-        self.assertIn("user@example.com", first_cmd)
-
-    @patch("builtins.input", return_value="654321")
-    @patch("subprocess.run")
-    def test_returns_true_on_success_phone(self, mock_run, _mock_input):
-        mock_run.return_value = self._make_ok()
-        result = run_otp("https://host", Path("/fake/auth.py"), "+5511999999999")
-        self.assertTrue(result)
-        # First call must use --phone, not --email
-        first_cmd = mock_run.call_args_list[0][0][0]
-        self.assertIn("--phone", first_cmd)
-        self.assertNotIn("--email", first_cmd)
-
-    @patch("builtins.input", return_value="111111")
-    @patch("subprocess.run")
-    def test_verify_otp_includes_code(self, mock_run, _mock_input):
-        mock_run.return_value = self._make_ok()
-        run_otp("https://host", Path("/fake/auth.py"), "a@b.com")
-        second_cmd = mock_run.call_args_list[1][0][0]
-        self.assertIn("verify-otp", second_cmd)
-        self.assertIn("--otp", second_cmd)
-        self.assertIn("111111", second_cmd)
-
-
-class TestRunOtpFailure(unittest.TestCase):
-    """run_otp returns False on first-call failure and does not make the second call."""
-
-    @patch("builtins.input", return_value="000000")
-    @patch("subprocess.run")
-    def test_first_call_nonzero_skips_verify(self, mock_run, _mock_input):
-        bad = MagicMock()
-        bad.returncode = 1
-        mock_run.return_value = bad
-        result = run_otp("https://host", Path("/fake/auth.py"), "user@example.com")
-        self.assertFalse(result)
-        # verify-otp must NOT have been called
-        self.assertEqual(mock_run.call_count, 1)
-
-    @patch("builtins.input", return_value="000000")
-    @patch("subprocess.run")
-    def test_second_call_nonzero_returns_false(self, mock_run, _mock_input):
-        ok = MagicMock()
-        ok.returncode = 0
-        bad = MagicMock()
-        bad.returncode = 1
-        mock_run.side_effect = [ok, bad]
-        result = run_otp("https://host", Path("/fake/auth.py"), "user@example.com")
-        self.assertFalse(result)
-        self.assertEqual(mock_run.call_count, 2)
-
-
-class TestRunOtpOSError(unittest.TestCase):
-    """run_otp must catch OSError and return False without propagating."""
-
-    @patch("builtins.input", return_value="000000")
-    @patch("subprocess.run", side_effect=OSError("no such file"))
-    def test_oserror_returns_false(self, _mock_run, _mock_input):
-        result = run_otp("https://host", Path("/nonexistent/auth.py"), "x@example.com")
-        self.assertFalse(result)
-
-    @patch("builtins.input", return_value="000000")
-    @patch("subprocess.run", side_effect=subprocess.SubprocessError("fail"))
-    def test_subprocess_error_returns_false(self, _mock_run, _mock_input):
-        result = run_otp("https://host", Path("/fake/auth.py"), "x@example.com")
-        self.assertFalse(result)
 
 
 class TestWriteUrlOnlyAndCurrentEnv(unittest.TestCase):

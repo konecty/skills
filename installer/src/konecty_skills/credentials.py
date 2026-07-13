@@ -1,10 +1,15 @@
-"""Credential setup: URL prompt + OTP via auth.py subprocess. Implemented in T7."""
+"""Interim admin-token store (T20, MCP-first).
+
+Since the MCP-first refactor, ``~/.konecty/.env`` is no longer the general auth
+foundation — user auth is OAuth handled by Claude Code. This module only keeps
+the **interim admin token**: OTP over HTTP (request-otp → verify-otp) against
+the informed Konecty URL, stored as ``KONECTY_URL``/``KONECTY_TOKEN`` and used
+as the Bearer header of the ``konecty-admin`` MCP entry.
+"""
 from __future__ import annotations
 
 import json
 import os
-import subprocess  # nosec B404 - drives the bundled auth.py CLI (arg list, no shell=True)
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -55,42 +60,6 @@ def prompt_url(default: str | None = None) -> str:
         if validate_url(candidate):
             return candidate
         print("Invalid URL. Please enter a full http:// or https:// address.")
-
-
-def run_otp(url: str, auth_py: Path, identifier: str) -> bool:
-    """Drive auth.py via subprocess to request and verify an OTP.
-
-    *identifier* is treated as an email when it contains "@", otherwise phone.
-    Returns True on success, False on any failure (never raises).
-    """
-    flag = "--email" if "@" in identifier else "--phone"
-    try:
-        req_result = subprocess.run(  # nosec B603 - arg list, no shell; drives bundled auth.py
-            [sys.executable, str(auth_py), "request-otp", "--host", url, flag, identifier],
-            check=False,
-        )
-        if req_result.returncode != 0:
-            return False
-
-        code = input("Enter the 6-digit OTP code: ").strip()
-
-        ver_result = subprocess.run(  # nosec B603 - arg list, no shell; drives bundled auth.py
-            [
-                sys.executable,
-                str(auth_py),
-                "verify-otp",
-                "--host",
-                url,
-                flag,
-                identifier,
-                "--otp",
-                code,
-            ],
-            check=False,
-        )
-        return ver_result.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
 
 
 # --- interim admin token: OTP over HTTP (T18, MCP-first) ---------------------

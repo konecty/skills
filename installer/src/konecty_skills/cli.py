@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """konecty-skills CLI entry point.
 
-Argparse dispatcher for the six lifecycle commands. Command bodies are wired in
-later tasks (T10–T13); for now each handler is a stub that returns 0 so the
-package builds and ``konecty-skills --help`` works.
+Argparse dispatcher for the six lifecycle commands (MCP-first): ``install``
+validates the company URL, registers the ``konecty``/``konecty-admin`` MCP
+servers in Claude Code, and copies the four skills; ``configure`` handles the
+interim admin token; ``doctor`` checks URL/well-known/audience/registration.
 """
 from __future__ import annotations
 
@@ -211,7 +212,8 @@ def _probe_konecty(url: str, token: str) -> tuple[bool, str]:
 
 
 def cmd_configure(args: argparse.Namespace) -> int:
-    from . import credentials, manifest, ui
+    """Interim admin-token setup: URL → OTP → ~/.konecty/.env + konecty-admin entry."""
+    from . import credentials, mcp_config, ui
 
     assume_yes: bool = args.yes
 
@@ -243,31 +245,20 @@ def cmd_configure(args: argparse.Namespace) -> int:
         credentials.write_url_only(url, _env_path())
         return 0
 
-    # Interactive: offer OTP.
-    run_otp_now = ui.confirm("Run OTP login now?", True, False)
+    # Interactive: offer the admin OTP login (interim konecty-admin auth).
+    run_otp_now = ui.confirm("Run the admin OTP login now?", True, False)
     if run_otp_now:
-        # Find auth.py from the manifest (first installation containing konecty-data).
-        m = manifest.load(_manifest_path())
-        auth_py: Path | None = None
-        for inst_root_str, installation in m.get("installations", {}).items():
-            for _key, skill_info in installation.get("skills", {}).items():
-                dest_rel = skill_info.get("dest", "")
-                if "konecty-data" in dest_rel:
-                    candidate = Path(inst_root_str) / dest_rel / "scripts" / "auth.py"
-                    if candidate.exists():
-                        auth_py = candidate
-                        break
-            if auth_py:
-                break
-
-        if auth_py:
-            identifier = ui.ask("Email or phone")
-            otp_ok = credentials.run_otp(url, auth_py, identifier)
-            if not otp_ok:
-                ui.warn("OTP login failed; writing URL only.")
-                credentials.write_url_only(url, _env_path())
+        identifier = ui.ask("Admin email or phone (E.164)")
+        token = credentials.otp_login(url, identifier)
+        if token:
+            credentials.write_env(url, token, _env_path())
+            result = mcp_config.register(
+                mcp_config.ADMIN_SERVER,
+                mcp_config.build_add_admin_token(url, token),
+            )
+            _report_registration(result, mcp_config.ADMIN_SERVER)
         else:
-            ui.warn("Install skills first to run OTP; writing URL only.")
+            ui.warn("OTP login failed; writing URL only.")
             credentials.write_url_only(url, _env_path())
     else:
         credentials.write_url_only(url, _env_path())
@@ -276,7 +267,7 @@ def cmd_configure(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    from . import credentials, manifest, ui
+    from . import credentials, manifest, mcp_config, ui
 
     m = manifest.load(_manifest_path())
     installs = m.get("installations", {})
@@ -295,6 +286,16 @@ def cmd_status(args: argparse.Namespace) -> int:
     url_status = "set" if env["url"] else "missing"
     token_status = "set" if env["token"] else "missing"
 
+    # MCP registration status (user-scope, shared by every installation).
+    if mcp_config.cli_available():
+        servers = mcp_config.list_servers()
+        registered = [
+            n for n in (mcp_config.USER_SERVER, mcp_config.ADMIN_SERVER) if n in servers
+        ]
+        mcp_status = ", ".join(registered) if registered else "(none registered)"
+    else:
+        mcp_status = "claude CLI not found"
+
     for inst_root, installation in targets:
         ui.step(f"Root    : {inst_root}")
         ui.step(f"Scope   : {installation.get('scope', '?')}")
@@ -303,7 +304,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         ui.step(f"Source  : ref={source.get('ref', '?')} commit={source.get('commit', '?')}")
         skill_keys = list(installation.get("skills", {}).keys())
         ui.step(f"Skills  : {', '.join(skill_keys) if skill_keys else '(none)'}")
-        ui.step(f"Creds   : url={url_status}, token={token_status}")
+        ui.step(f"MCP     : {mcp_status}")
+        ui.step(f"Creds   : url={url_status}, token={token_status} (interim admin token store)")
 
     return 0
 
@@ -445,7 +447,7 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
-    from . import installer, manifest, ui
+    from . import installer, manifest, mcp_config, ui
 
     root = _root(args)
     m = manifest.load(_manifest_path())
@@ -483,6 +485,22 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     if report.get("purged"):
         ui.ok("Credentials file removed (--purge).")
 
+    # --purge also removes the user-scope MCP entries created by install.
+    if args.purge:
+        if mcp_config.cli_available():
+            servers = mcp_config.list_servers()
+            for name in (mcp_config.USER_SERVER, mcp_config.ADMIN_SERVER):
+                if name in servers:
+                    ok, _detail = mcp_config.run_command(mcp_config.build_remove(name))
+                    if ok:
+                        ui.ok(f"MCP server '{name}' removed")
+                    else:
+                        ui.warn(f"Failed to remove MCP server '{name}'")
+        else:
+            ui.warn("claude CLI not found — remove MCP entries manually:")
+            for name in (mcp_config.USER_SERVER, mcp_config.ADMIN_SERVER):
+                ui.step(mcp_config.format_command(mcp_config.build_remove(name)))
+
     return 0
 
 
@@ -517,12 +535,12 @@ def build_parser() -> argparse.ArgumentParser:
         "uninstall": cmd_uninstall,
     }
     helps = {
-        "install": "detect engines, copy skills, set up credentials, write manifest",
-        "configure": "set up Konecty credentials only (~/.konecty/.env)",
-        "status": "show installed skills, engines, and credential status",
+        "install": "validate the company URL, register the Konecty MCP servers, copy the skills",
+        "configure": "interim admin token only: OTP login + konecty-admin MCP entry",
+        "status": "show installed skills, MCP registration, and admin-token status",
         "update": "re-fetch skills with SHA-256 protection (keeps local edits)",
-        "doctor": "validate installation and test the Konecty connection",
-        "uninstall": "remove installed skills (credentials kept unless --purge)",
+        "doctor": "check URL, MCP well-known/audience, MCP registration, and admin token",
+        "uninstall": "remove installed skills (--purge also removes credentials + MCP entries)",
     }
     for name, handler in handlers.items():
         sp = sub.add_parser(name, help=helps[name])
@@ -530,7 +548,10 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "status" or name == "doctor":
             sp.add_argument("--all", action="store_true", help="report every installation, not just the current dir")
         if name == "uninstall":
-            sp.add_argument("--purge", action="store_true", help="also remove ~/.konecty credentials")
+            sp.add_argument(
+                "--purge", action="store_true",
+                help="also remove ~/.konecty credentials and the konecty MCP entries",
+            )
         sp.set_defaults(func=handler)
     return parser
 

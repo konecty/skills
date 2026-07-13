@@ -270,11 +270,60 @@ class TestCmdUninstall(unittest.TestCase):
         env_path.write_text("KONECTY_URL=https://h.example\n")
 
         buf = io.StringIO()
-        with patch("sys.stdout", buf):
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
             rc = main(["uninstall", "--yes", "--purge"])
 
         self.assertEqual(rc, 0)
         self.assertFalse(env_path.exists(), ".env should have been removed with --purge")
+        # CLI absent: the removal commands are printed for manual execution.
+        self.assertIn("claude mcp remove --scope user konecty", buf.getvalue())
+
+    # --- T20: --purge also removes the MCP entries ---------------------------
+
+    def test_uninstall_purge_removes_mcp_entries(self) -> None:
+        """uninstall --yes --purge removes registered konecty MCP servers."""
+        from konecty_skills import mcp_config
+
+        self._seed_installation()
+
+        calls: list[list[str]] = []
+
+        def fake_run(argv):
+            calls.append(argv)
+            return True, "removed"
+
+        buf = io.StringIO()
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=True),
+            patch(
+                "konecty_skills.mcp_config.list_servers",
+                return_value=["konecty", "konecty-admin"],
+            ),
+            patch("konecty_skills.mcp_config.run_command", side_effect=fake_run),
+            patch("sys.stdout", buf),
+        ):
+            rc = main(["uninstall", "--yes", "--purge"])
+
+        self.assertEqual(rc, 0)
+        self.assertIn(mcp_config.build_remove("konecty"), calls)
+        self.assertIn(mcp_config.build_remove("konecty-admin"), calls)
+
+    def test_uninstall_without_purge_keeps_mcp_entries(self) -> None:
+        """plain uninstall leaves the user-scope MCP entries alone."""
+        self._seed_installation()
+
+        with (
+            patch("konecty_skills.mcp_config.cli_available") as mock_avail,
+            patch("konecty_skills.mcp_config.run_command") as mock_run,
+        ):
+            rc = main(["uninstall", "--yes"])
+
+        self.assertEqual(rc, 0)
+        mock_avail.assert_not_called()
+        mock_run.assert_not_called()
 
 
 if __name__ == "__main__":
