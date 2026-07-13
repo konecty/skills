@@ -1,84 +1,16 @@
-# Field Discovery — Konecty Modules
+# Field Discovery — pointer
 
-Lists accessible Konecty modules and their fields/types for the current session.
+Field/module discovery is a **user-MCP** concern and lives in the **konecty-data**
+skill: the sequence `modules_list` → `modules_fields` →
+`field_picklist_options` / `field_lookup_search` (on the `konecty` server), plus the
+control-fields and operator-by-type tables.
 
-## Prerequisites
+See [konecty-data/references/field-discovery.md](../../konecty-data/references/field-discovery.md).
 
-Requires credentials from **konecty-session**: `KONECTY_URL` and `KONECTY_TOKEN` in `~/.konecty/.env`.
-If not present or expired, ask the user to run the auth flow first (see [auth.md](auth.md)).
+## Metadata-side note
 
-## API
-
-All requests require `Authorization: <KONECTY_TOKEN>` header.
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /rest/query/explorer/modules?lang=pt_BR` | All modules accessible to the current user, with fields and types |
-
-**Module object** (`lang` controls field/module labels):
-```json
-{
-  "document": "Contact",
-  "label": "Contato",
-  "fields": [
-    { "name": "name", "type": "text", "label": "Nome" },
-    { "name": "status", "type": "picklist", "label": "Status", "options": { "active": "Ativo" } },
-    { "name": "queue", "type": "lookup", "label": "Fila", "document": "Queue", "descriptionFields": ["name"] }
-  ],
-  "reverseLookups": [
-    { "document": "Activity", "lookup": "contact", "label": "Atividade" }
-  ]
-}
-```
-
-**Field types:** `text`, `number`, `boolean`, `date`, `dateTime`, `lookup`, `inheritLookup`, `picklist`, `address`, `file`, `url`, `email`, `phone`, `money`, `percentage`, `richText`, `autoNumber`, `filter`.
-
-## Workflow
-
-### 1. Load credentials
-
-```bash
-source ~/.konecty/.env  # exports KONECTY_URL and KONECTY_TOKEN
-```
-
-Or use the script (auto-loads from `~/.konecty/.env`).
-
-### 2. List modules
-
-```bash
-python3 scripts/modules.py list
-python3 scripts/modules.py list --lang en
-```
-
-Output: table of `document` (internal name), `label`, field count.
-
-### 3. Find a module and show its fields
-
-```bash
-python3 scripts/modules.py fields "contato"
-python3 scripts/modules.py fields "Contact"
-python3 scripts/modules.py fields "oport"   # fuzzy match
-```
-
-Matching priority: exact `document` name → exact `label` → fuzzy (difflib SequenceMatcher on document + label). Prints all fields with name, type, and label.
-
-### 4. Search modules by keyword
-
-```bash
-python3 scripts/modules.py search "atividade"
-```
-
-Filters modules whose `document` or `label` contains the keyword (case-insensitive).
-
-## Fuzzy matching for agents
-
-When the user refers to a module by an approximate name or in Portuguese, use `python3 scripts/modules.py fields "<user term>"` — the script ranks by similarity and picks the best match. If no confident match, it prints the top candidates so you can ask the user to confirm.
-
-## Script reference
-
-See [scripts/modules.py](../scripts/modules.py). Stdlib only (`urllib`, `json`, `difflib`, `configparser`).
-
-All subcommands accept:
-- `--host` — overrides `KONECTY_URL`
-- `--token` — overrides `KONECTY_TOKEN`
-- `--lang` — language for labels (default: `pt_BR`)
+For **schema truth** while administering metadata, prefer `meta_read` on the
+`konecty-admin` server ([read.md](read.md)): it returns the raw document meta —
+full field definitions, picklist option maps, lookup targets, `inheritedFields`,
+hooks — unfiltered by the calling user's access profile. `modules_fields` shows a
+module as a *user* sees it; `meta_read` shows it as it *is*.

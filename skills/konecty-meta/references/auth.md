@@ -1,91 +1,58 @@
-# Konecty Session — Reference (OTP flow)
+# Authentication — admin MCP
 
-## Prerequisite: OTP enabled in namespace
+The admin MCP (`/admin-mcp`, registered as the `konecty-admin` server) requires a
+token from a user with `admin: true`, sent through the HTTP `Authorization` header.
+Tools are called **without** any token argument. Two auth paths exist:
 
-Login via this skill is only possible when the Konecty namespace has OTP configured (email and/or WhatsApp). If the namespace does not have OTP enabled, the session flow cannot be used. Check **login-options** first.
+## Interim path (today) — Bearer `authTokenId` from OTP
 
-## APIs (OTP flow)
+The `konecty-admin` MCP entry is registered with a static header:
 
-Base URL: `{KONECTY_URL}` (no trailing slash). All request/verify bodies are JSON, `Content-Type: application/json`.
-
-### GET /api/auth/login-options
-
-Returns which login methods are enabled for the current namespace.
-
-**Response:** `{ passwordEnabled: boolean, emailOtpEnabled: boolean, whatsAppOtpEnabled: boolean }`
-
-- If neither `emailOtpEnabled` nor `whatsAppOtpEnabled` is true, the konecty-session skill cannot obtain a token (OTP login not available).
-
-### POST /api/auth/request-otp
-
-Sends a one-time code to the user's email or phone. Exactly one of `email` or `phoneNumber` must be provided.
-
-**Body:**
-- `{ "email": "user@example.com" }` or
-- `{ "phoneNumber": "+5511999999999" }` (E.164 format)
-
-**Response:** `{ success: true, message: "OTP sent via ..." }` or `{ success: false, errors: [...] }`
-
-After success, the user receives the 6-digit code by email or WhatsApp. The agent should then ask the user to provide the code.
-
-### POST /api/auth/verify-otp
-
-Verifies the OTP code and returns the session token. Same identifier (email or phone) as in request-otp, plus the 6-digit code.
-
-**Body:**
-- `{ "email": "user@example.com", "otpCode": "123456" }` or
-- `{ "phoneNumber": "+5511999999999", "otpCode": "123456" }`
-
-**Response (success):** `{ success: true, logged: true, authId: "<token>", user: { _id, ... } }`
-
-- `authId` is the session token to store as `KONECTY_TOKEN`.
-- Use `user._id` optionally as `KONECTY_USER_ID`.
-
-After a successful verify-otp, persist `authId` (and optionally `user._id`) to **~/.konecty/.env** and **~/.konecty/credentials** (shared location so all skills can use the same token). Do not store the OTP code.
-
-## Token validity
-
-The session token (`authId`) is valid for a period defined by the namespace (e.g. `sessionExpirationInSeconds`). After expiration, API calls using that token will fail (e.g. 401). Other skills should treat invalid/expired token by asking the user to run the konecty-session flow again (request OTP → receive code → verify OTP → persist new token).
-
-## Environment variables (for other skills)
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `KONECTY_URL` | Yes | Konecty base URL, no trailing slash |
-| `KONECTY_TOKEN` | Yes | Session token (`authId`) from verify-otp |
-| `KONECTY_USER_ID` | No | Logged-in user `_id` |
-
-## Shared credential location (all skills)
-
-Token and URL are written to **~/.konecty/** so any skill can use them:
-
-- **~/.konecty/.env** — `KONECTY_URL=...`, `KONECTY_TOKEN=...`, `KONECTY_USER_ID=...` (load with `source ~/.konecty/.env` or your language's env loader).
-- **~/.konecty/credentials** — ini format for Node `@konecty/sdk` and CLI:
-
-```ini
-[default]
-host = https://app.konecty.com
-userId = <user _id>
-authId = <session token>
+```
+Authorization: Bearer <authTokenId>
 ```
 
-`authId` is the value of `KONECTY_TOKEN`.
+where `<authTokenId>` is the session token (`authId`) of an **admin** user obtained
+via the OTP flow during setup (the `session_*` tools on the user MCP, or the
+installer's admin step — see **konecty-setup**).
 
-## Script usage
+Properties and consequences:
 
-```bash
-# Check which OTP methods are enabled
-python3 scripts/auth.py login-options --host <url>
+- The token expires per the namespace's session policy. When `meta_*` calls start
+  failing with `401`/`UNAUTHORIZED`, the token is stale: re-run the setup "fix auth"
+  flow — new OTP login → new `authTokenId` → re-register the `konecty-admin` entry
+  with the new header. There is nothing this skill can refresh by itself.
+- The token belongs to a specific admin user; actions are audited as that user.
+- Admin gating is enforced server-side: `admin: true` on the user AND
+  `mcpAdminEnabled` on the namespace (503 when off).
 
-# Step 1: Request OTP
-python3 scripts/auth.py request-otp --host <url> --email user@example.com
-# or
-python3 scripts/auth.py request-otp --host <url> --phone +5511999999999
+## Target path — OAuth trusted client (ADR-0011)
 
-# Step 2: Verify OTP and persist credentials
-python3 scripts/auth.py verify-otp --host <url> --email user@example.com --otp 123456
-# or
-python3 scripts/auth.py verify-otp --host <url> --phone +5511999999999 --otp 123456
-```
+Konecty supports granting the `admin` OAuth scope at consent for **trusted
+clients**:
 
-The script writes `~/.konecty/.env` and `~/.konecty/credentials`. It does **not** store the OTP code, only the resulting token.
+1. The client is provisioned server-side with `trustedFirstParty: true` — only
+   possible via the deployment's `OAUTH_CLIENTS_JSON` (never via DCR).
+2. The client's `allowedScopes` include `admin`.
+3. The consenting user has `admin === true`.
+4. The user **explicitly selects** `admin` on the consent screen (shown unchecked,
+   with a risk warning).
+
+The runtime gate is unchanged: the token must carry the `admin` scope **and** the
+user must have `admin === true` — client trust alone never escalates.
+
+**Switching is re-registration only**: once the deployment provisions the trusted
+client, replace the `konecty-admin` entry — `claude mcp remove` + `claude mcp add`
+with `--client-id <trusted-client>` and `--callback-port <registered-port>` (the
+redirect URI is matched exactly). Nothing else in this skill changes. The
+**konecty-setup** skill carries the command templates and the provisioning recipe
+pointers.
+
+## Errors
+
+| Signal | Meaning | Next step |
+|--------|---------|-----------|
+| 503 (admin MCP unavailable) | `mcpAdminEnabled` is off | Enable it on the namespace (requires another working admin path) |
+| 401 / `UNAUTHORIZED` | Interim token expired/invalid, or OAuth token rejected | Interim: re-run OTP + re-register header. OAuth: re-authenticate in Claude Code |
+| 403 / FORBIDDEN on `meta_*` | User is not `admin: true`, or token lacks the `admin` scope | Use an admin user; on the OAuth path, ensure `admin` was selected at consent |
+| Audience mismatch (token accepted nowhere) | Deployment's OAuth audience env vars misaligned with the MCP URL | Server-side fix — align `PLATFORM_MCP_RESOURCE_URL`; konecty-setup's doctor detects it |
