@@ -5,8 +5,9 @@
 DATA       := skills/konecty-data
 META       := skills/konecty-meta
 DEV        := skills/konecty-dev
+SETUP      := skills/konecty-setup
 SKILLS     := $(DATA) $(META)
-ALL_SKILLS := $(DATA) $(META) $(DEV)
+ALL_SKILLS := $(DATA) $(META) $(DEV) $(SETUP)
 
 VERSION   ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "1.0.0")
 CHANGELOG ?= Release $(VERSION)
