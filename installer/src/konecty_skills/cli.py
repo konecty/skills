@@ -37,8 +37,24 @@ def _env_path() -> Path:
 
 # --- commands ---------------------------------------------------------------
 
+def _report_registration(result: dict, name: str) -> str:
+    """Print the outcome of an mcp_config.register() call; return a status word."""
+    from . import ui
+
+    if not result["executed"]:
+        ui.warn("claude CLI not found — run these commands manually:")
+        for cmd in result["commands"]:
+            ui.step(cmd)
+        return "printed"
+    if result["ok"]:
+        ui.ok(f"MCP server '{name}' registered")
+        return "registered"
+    ui.warn(f"Failed to register MCP server '{name}': {result['detail']}")
+    return "failed"
+
+
 def cmd_install(args: argparse.Namespace) -> int:
-    from . import banner, credentials, engines, fetcher, installer, manifest, ui
+    from . import banner, credentials, engines, fetcher, installer, manifest, mcp_config, ui
 
     assume_yes: bool = args.yes
 
@@ -63,17 +79,69 @@ def cmd_install(args: argparse.Namespace) -> int:
     if not assume_yes:
         chosen = ui.select(engines.SUPPORTED_ENGINES, preselected=chosen, assume_yes=False)
 
-    # 4. Fetch skills.
+    # 4. Company URL → validate → probe (MCPF-20; nothing half-configured).
+    raw_url: str | None = args.url
+    if not raw_url and not assume_yes:
+        raw_url = ui.ask("Konecty company URL (https://...)")
+
+    mcp_url: str | None = None
+    if raw_url:
+        try:
+            mcp_url = mcp_config.normalize_url(raw_url)
+        except mcp_config.UrlValidationError as exc:
+            ui.err(str(exc))
+            return 1
+    else:
+        ui.warn("No URL provided; skipping MCP registration.")
+
+    mcp_status = "skipped"
+    if mcp_url:
+        probe = mcp_config.probe_well_known(mcp_url)
+        if probe["status"] == "no_mcp":
+            ui.err(
+                "This Konecty does not expose MCP — ask for a server upgrade, "
+                "or pin the last script-based release of this package."
+            )
+            return 1
+        if probe["status"] == "unreachable":
+            ui.err(f"Konecty URL is unreachable: {probe['detail']}")
+            return 1
+        if probe["status"] in ("mismatch", "bad_json"):
+            ui.warn(probe["detail"])
+
+        # 5. Register the user MCP server (replace, never duplicate).
+        result = mcp_config.register(
+            mcp_config.USER_SERVER, mcp_config.build_add_user(mcp_url)
+        )
+        mcp_status = _report_registration(result, mcp_config.USER_SERVER)
+
+        # 6. Optional admin path (interim: OTP → Bearer authTokenId header).
+        if not assume_yes and ui.confirm(
+            "Set up admin MCP access (requires a Konecty admin user)?", False, False
+        ):
+            identifier = ui.ask("Admin email or phone (E.164)")
+            admin_token = credentials.otp_login(mcp_url, identifier)
+            if admin_token:
+                credentials.write_env(mcp_url, admin_token, _env_path())
+                admin_result = mcp_config.register(
+                    mcp_config.ADMIN_SERVER,
+                    mcp_config.build_add_admin_token(mcp_url, admin_token),
+                )
+                _report_registration(admin_result, mcp_config.ADMIN_SERVER)
+            else:
+                ui.warn("Admin OTP login failed; skipping konecty-admin registration.")
+
+    # 7. Fetch skills.
     try:
         fetch = fetcher.fetch_skills(ref=args.ref)
     except fetcher.FetchError as exc:
         ui.err(f"Failed to fetch skills: {exc}")
         return 1
 
-    # 5. Load manifest.
+    # 8. Load manifest.
     m = manifest.load(_manifest_path())
 
-    # 6. Install skills.
+    # 9. Install skills.
     installed_at = datetime.now(timezone.utc).isoformat()
     source = {
         "repo": "konecty/skills",
@@ -90,58 +158,21 @@ def cmd_install(args: argparse.Namespace) -> int:
         installed_at,
     )
 
-    # 7. Merge entry blocks.
+    # 10. Merge entry blocks.
     for engine in chosen:
         ef = engines.entry_file(engine, root)
         if ef is not None:
             installer.merge_entry_block(ef)
 
-    # 8. Save manifest.
+    # 11. Save manifest.
     manifest.save(m, _manifest_path())
 
-    # 9. Credentials step (wrapped so a failure here doesn't undo the install).
-    cred_status = "skipped"
-    try:
-        env = credentials.current_env(_env_path())
-
-        # Resolve URL.
-        url: str | None = args.url
-        if not url and not assume_yes:
-            url = credentials.prompt_url(env["url"])
-        elif not url and not env["url"]:
-            ui.warn("No URL provided and no saved credentials; skipping credentials setup.")
-            url = None
-
-        if url:
-            if assume_yes:
-                credentials.write_url_only(url, _env_path())
-                cred_status = "url_written"
-            else:
-                # Interactive: ask whether to run OTP.
-                run_otp_now = ui.confirm("Run OTP login now?", True, assume_yes)
-                if run_otp_now:
-                    identifier = ui.ask("Email or phone")
-                    auth_py = engines.dest_path(chosen[0], root, args.scope) / "konecty-data" / "scripts" / "auth.py"
-                    otp_ok = credentials.run_otp(url, auth_py, identifier)
-                    if otp_ok:
-                        cred_status = "otp_complete"
-                    else:
-                        ui.warn("OTP login failed; writing URL only.")
-                        credentials.write_url_only(url, _env_path())
-                        cred_status = "url_written"
-                else:
-                    credentials.write_url_only(url, _env_path())
-                    cred_status = "url_written"
-    except Exception as exc:  # noqa: BLE001
-        ui.warn(f"Credentials step failed ({exc}); skills were installed successfully.")
-        cred_status = "error"
-
-    # 10. Print summary.
+    # 12. Print summary.
     ui.ok(f"Engines  : {', '.join(report['engines'])}")
     ui.ok(f"Skills   : {', '.join(report['skills'])}")
     ui.ok(f"Dests    : {', '.join(report['dests'])}")
     ui.ok(f"Files    : {report['files_written']} written")
-    ui.ok(f"Creds    : {cred_status}")
+    ui.ok(f"MCP      : {mcp_status}")
 
     return 0
 

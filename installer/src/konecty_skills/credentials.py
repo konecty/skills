@@ -1,10 +1,13 @@
 """Credential setup: URL prompt + OTP via auth.py subprocess. Implemented in T7."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess  # nosec B404 - drives the bundled auth.py CLI (arg list, no shell=True)
 import sys
+import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 DEFAULT_ENV_PATH: Path = Path.home() / ".konecty" / ".env"
@@ -88,6 +91,92 @@ def run_otp(url: str, auth_py: Path, identifier: str) -> bool:
         return ver_result.returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
+
+
+# --- interim admin token: OTP over HTTP (T18, MCP-first) ---------------------
+
+def _post_json(url: str, payload: dict, timeout: int = 30) -> dict:
+    """POST *payload* as JSON to *url*; return the parsed JSON response.
+
+    Returns an empty dict on any network/HTTP/JSON failure (never raises).
+    """
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        return {}
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310  # nosec B310 - scheme guarded above
+            return json.load(resp)
+    except Exception:  # noqa: BLE001 - HTTPError, URLError, timeout, bad JSON
+        return {}
+
+
+def _identifier_payload(identifier: str) -> dict:
+    """Map an identifier to the Konecty OTP payload key (email vs phoneNumber)."""
+    if "@" in identifier:
+        return {"email": identifier}
+    return {"phoneNumber": identifier}
+
+
+def request_otp(url: str, identifier: str) -> bool:
+    """POST /api/auth/request-otp; True when the server accepted the request."""
+    endpoint = f"{url.rstrip('/')}/api/auth/request-otp"
+    result = _post_json(endpoint, _identifier_payload(identifier))
+    return bool(result.get("success"))
+
+
+def verify_otp(url: str, identifier: str, code: str) -> str | None:
+    """POST /api/auth/verify-otp; return the authId token or None on failure."""
+    endpoint = f"{url.rstrip('/')}/api/auth/verify-otp"
+    payload = _identifier_payload(identifier)
+    payload["otpCode"] = code.strip()
+    result = _post_json(endpoint, payload)
+    if result.get("success") and result.get("logged") and result.get("authId"):
+        return str(result["authId"])
+    return None
+
+
+def otp_login(url: str, identifier: str) -> str | None:
+    """Full interim-admin OTP flow: request → prompt for the code → verify.
+
+    Returns the ``authId`` token, or None on any failure (never raises).
+    """
+    if not request_otp(url, identifier):
+        return None
+    code = input("Enter the 6-digit OTP code: ").strip()
+    return verify_otp(url, identifier, code)
+
+
+def write_env(url: str, token: str, path: Path = DEFAULT_ENV_PATH) -> None:
+    """Write/merge KONECTY_URL and KONECTY_TOKEN (the interim admin token store).
+
+    Preserves unrelated lines; parent dir 0o700, file 0o600.
+    """
+    parent = path.parent
+    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    existing_lines: list[str] = []
+    if path.is_file():
+        with open(path, "r", encoding="utf-8") as fh:
+            existing_lines = fh.readlines()
+
+    filtered = [
+        ln for ln in existing_lines
+        if not ln.strip().startswith(("KONECTY_URL=", "KONECTY_TOKEN="))
+    ]
+    filtered.append(f"KONECTY_URL={url}\n")
+    filtered.append(f"KONECTY_TOKEN={token}\n")
+
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.writelines(filtered)
+
+    os.chmod(path, 0o600)
 
 
 def write_url_only(url: str, path: Path = DEFAULT_ENV_PATH) -> None:

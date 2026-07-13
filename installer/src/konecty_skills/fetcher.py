@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-SKILL_DIRS = ("konecty-data", "konecty-meta")
+SKILL_DIRS = ("konecty-data", "konecty-meta", "konecty-setup", "konecty-dev")
 
 _PUBLIC_URL = "https://github.com/konecty/skills/archive/refs/heads/{ref}.tar.gz"
 _API_URL = "https://api.github.com/repos/konecty/skills/tarball/{ref}"
@@ -45,7 +45,7 @@ def _download(url: str, token: str | None = None) -> bytes:
 
 
 def fetch_skills(ref: str = "main", token: str | None = None) -> dict:
-    """Download and extract the two Konecty skill folders.
+    """Download and extract the Konecty skill folders (SKILL_DIRS).
 
     Steps
     -----
