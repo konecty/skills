@@ -309,7 +309,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    from . import credentials, manifest, ui
+    from . import credentials, manifest, mcp_config, ui
 
     m = manifest.load(_manifest_path())
     installs = m.get("installations", {})
@@ -333,16 +333,79 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         else:
             ui.ok("All files match manifest")
 
-    # Credentials / connection check.
     env = credentials.current_env(_env_path())
+
+    # --- Check 1: URL reachable + well-known + audience (MCPF-22, Risk #1) ---
+    base: str | None = None
+    if env["url"]:
+        try:
+            base = mcp_config.normalize_url(env["url"])
+        except mcp_config.UrlValidationError as exc:
+            ui.warn(f"Configured Konecty URL is invalid: {exc}")
+    else:
+        ui.warn(
+            "No Konecty URL configured (~/.konecty/.env) — "
+            "run install or the konecty-setup skill."
+        )
+
+    if base:
+        probe = mcp_config.probe_well_known(base)
+        if probe["status"] == "ok":
+            ui.ok("MCP well-known endpoint: OK")
+        elif probe["status"] == "no_mcp":
+            ui.warn(
+                "MCP well-known endpoint returned 404 — this Konecty does not "
+                "expose MCP; upgrade the server or pin the last script-based "
+                "release of this package."
+            )
+        elif probe["status"] == "mismatch":
+            ui.warn(
+                f"Audience mismatch: well-known resource is {probe['resource']!r} "
+                f"but the MCP URL is {base + '/mcp'!r} — align "
+                "PLATFORM_MCP_RESOURCE_URL on the server."
+            )
+        elif probe["status"] == "bad_json":
+            ui.warn(f"MCP well-known endpoint returned invalid JSON: {probe['detail']}")
+        else:
+            ui.warn(
+                f"Konecty URL unreachable: {probe['detail']} — "
+                "check the URL (and VPN, if applicable)."
+            )
+
+    # --- Check 2: MCP servers registered in Claude Code (MCPF-22) -------------
+    if mcp_config.cli_available():
+        servers = mcp_config.list_servers()
+        if mcp_config.USER_SERVER in servers:
+            ui.ok(f"MCP server '{mcp_config.USER_SERVER}' registered")
+        else:
+            ui.warn(
+                f"MCP server '{mcp_config.USER_SERVER}' not registered — "
+                "re-run install or ask the konecty-setup skill to register it."
+            )
+        if mcp_config.ADMIN_SERVER in servers:
+            ui.ok(f"MCP server '{mcp_config.ADMIN_SERVER}' registered")
+        else:
+            ui.step(
+                f"MCP server '{mcp_config.ADMIN_SERVER}' not registered "
+                "(optional — only needed for metadata administration)."
+            )
+    else:
+        ui.warn(
+            "claude CLI not found — cannot verify MCP registration; "
+            "run the claude mcp commands manually (see konecty-setup)."
+        )
+
+    # --- Check 3: interim admin token validity (when configured) --------------
     if env["url"] and env["token"]:
         reachable, detail = _probe_konecty(env["url"], env["token"])
         if reachable:
-            ui.ok(f"Konecty connection: OK ({detail})")
+            ui.ok(f"Admin token check: OK ({detail})")
         else:
-            ui.warn(f"Konecty connection: FAILED ({detail})")
-    else:
-        ui.warn("No credentials configured")
+            ui.warn(
+                f"Admin token check failed ({detail}) — re-run the OTP login "
+                "(konecty-setup 'fix auth') and re-register the "
+                "konecty-admin entry."
+            )
 
     return 0
 
