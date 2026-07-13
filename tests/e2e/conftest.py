@@ -78,7 +78,6 @@ def mongo_eval_json(js: str):
 @pytest.fixture(scope="session")
 def admin_token() -> str:
     """First-party admin authTokenId (password recovered from container logs)."""
-    sys.path.insert(0, str(REPO_ROOT / "e2e" / "scripts"))
     import konecty_admin_token as kat  # noqa: PLC0415
 
     password = kat.password_from_logs(E2E_CONTAINER)

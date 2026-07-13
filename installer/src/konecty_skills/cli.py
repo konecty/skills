@@ -183,6 +183,22 @@ def _root(args: argparse.Namespace) -> Path:
     return Path.cwd() if args.scope == "project" else Path.home()
 
 
+def _select_installations(args: argparse.Namespace, installs: dict) -> list[tuple[str, dict]]:
+    """Installations that status/doctor report on: all, or just the current root.
+
+    Prints a hint and returns an empty list when the current root has none.
+    """
+    from . import ui
+
+    if args.all:
+        return list(installs.items())
+    root_key = str(_root(args).resolve())
+    if root_key in installs:
+        return [(root_key, installs[root_key])]
+    ui.step(f"No installation found for {root_key}. Use --all to list all.")
+    return []
+
+
 def _probe_konecty(url: str, token: str) -> tuple[bool, str]:
     """Probe the Konecty server with a GET to /api/auth/login-options.
 
@@ -270,17 +286,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     from . import credentials, manifest, mcp_config, ui
 
     m = manifest.load(_manifest_path())
-    installs = m.get("installations", {})
-
-    root_key = str(_root(args).resolve())
-    if args.all:
-        targets = list(installs.items())
-    else:
-        if root_key in installs:
-            targets = [(root_key, installs[root_key])]
-        else:
-            ui.step(f"No installation found for {root_key}. Use --all to list all.")
-            return 0
+    targets = _select_installations(args, m.get("installations", {}))
+    if not targets and not args.all:
+        return 0
 
     env = credentials.current_env(_env_path())
     url_status = "set" if env["url"] else "missing"
@@ -314,17 +322,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     from . import credentials, manifest, mcp_config, ui
 
     m = manifest.load(_manifest_path())
-    installs = m.get("installations", {})
-
-    root_key = str(_root(args).resolve())
-    if args.all:
-        targets = [(k, v) for k, v in installs.items()]
-    else:
-        if root_key in installs:
-            targets = [(root_key, installs[root_key])]
-        else:
-            ui.step(f"No installation found for {root_key}. Use --all to list all.")
-            return 0
+    targets = _select_installations(args, m.get("installations", {}))
+    if not targets and not args.all:
+        return 0
 
     for inst_root, installation in targets:
         ui.step(f"Checking {inst_root} ...")

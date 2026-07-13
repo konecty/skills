@@ -122,52 +122,35 @@ def otp_login(url: str, identifier: str) -> str | None:
     return verify_otp(url, identifier, code)
 
 
-def write_env(url: str, token: str, path: Path = DEFAULT_ENV_PATH) -> None:
-    """Write/merge KONECTY_URL and KONECTY_TOKEN (the interim admin token store).
+def _merge_env(values: dict, path: Path) -> None:
+    """Write/merge *values* (VAR → value) into the .env file.
 
-    Preserves unrelated lines; parent dir 0o700, file 0o600.
+    Existing lines for the given keys are replaced; every other line is
+    preserved.  The parent directory is created with mode 0o700; the file
+    is chmod'd to 0o600 after writing.
     """
-    parent = path.parent
-    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     existing_lines: list[str] = []
     if path.is_file():
         with open(path, "r", encoding="utf-8") as fh:
             existing_lines = fh.readlines()
 
-    filtered = [
-        ln for ln in existing_lines
-        if not ln.strip().startswith(("KONECTY_URL=", "KONECTY_TOKEN="))
-    ]
-    filtered.append(f"KONECTY_URL={url}\n")
-    filtered.append(f"KONECTY_TOKEN={token}\n")
+    prefixes = tuple(f"{key}=" for key in values)
+    filtered = [ln for ln in existing_lines if not ln.strip().startswith(prefixes)]
+    filtered.extend(f"{key}={value}\n" for key, value in values.items())
 
     with open(path, "w", encoding="utf-8") as fh:
         fh.writelines(filtered)
 
     os.chmod(path, 0o600)
+
+
+def write_env(url: str, token: str, path: Path = DEFAULT_ENV_PATH) -> None:
+    """Write/merge KONECTY_URL and KONECTY_TOKEN (the interim admin token store)."""
+    _merge_env({"KONECTY_URL": url, "KONECTY_TOKEN": token}, path)
 
 
 def write_url_only(url: str, path: Path = DEFAULT_ENV_PATH) -> None:
-    """Write/merge KONECTY_URL into the .env file.
-
-    Preserves all existing lines except the KONECTY_URL line, which is
-    replaced (or appended when absent).  The parent directory is created
-    with mode 0o700; the file is chmod'd to 0o600 after writing.
-    """
-    parent = path.parent
-    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-
-    existing_lines: list[str] = []
-    if path.is_file():
-        with open(path, "r", encoding="utf-8") as fh:
-            existing_lines = fh.readlines()
-
-    # Remove any existing KONECTY_URL line; keep everything else.
-    filtered = [ln for ln in existing_lines if not ln.strip().startswith("KONECTY_URL=")]
-    filtered.append(f"KONECTY_URL={url}\n")
-
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.writelines(filtered)
-
-    os.chmod(path, 0o600)
+    """Write/merge KONECTY_URL into the .env file (token untouched)."""
+    _merge_env({"KONECTY_URL": url}, path)
