@@ -1,41 +1,81 @@
 ---
 name: konecty-meta
-description: "All Konecty metadata operations: read/inspect MetaObjects, manage document schemas and fields, manage list/view/access/pivot metas, generate hook code (scriptBeforeValidation/validationScript/scriptAfterSave/validationData), manage Namespace config (SMTP/RabbitMQ/storage), validate metadata integrity, sync metadata repo↔database, remove full metadata modules. Use when: ler metadados, listar documentos, inspecionar esquema, gerenciar campos, adicionar campo, criar lista/view, configurar perfil de acesso, gerar hook, configurar Namespace/SMTP/fila RabbitMQ, validar integridade meta, sincronizar metas, remover módulo meta, read metadata, manage schema, add fields, manage list view access pivot, generate hook, configure namespace smtp queue, validate metadata, sync metadata repo to prod, remove meta module. Requires admin credentials (admin: true). Do NOT use for data record ops (find/create/update/delete/upload) — use konecty-data instead."
+description: "All Konecty metadata operations through the Konecty admin MCP server: read/inspect MetaObjects, manage document schemas and fields, manage list/view/access/pivot metas, validate and generate hook code, manage Namespace config (SMTP/RabbitMQ/storage/MCP flags), validate metadata integrity, and sync metadata repo↔database. Use when: ler metadados, inspecionar esquema, gerenciar campos, adicionar campo, criar lista/view, configurar perfil de acesso, gerar hook, configurar Namespace/SMTP/fila RabbitMQ, habilitar MCP, validar integridade meta, sincronizar metas, remover módulo meta, read metadata, manage schema, add fields, manage list view access pivot, generate hook, configure namespace, enable MCP flags, validate metadata, sync metadata, remove meta module. Requires the konecty-admin MCP server connected and an admin user (admin: true). Do NOT use for data record ops (find/create/update/delete/upload) — use konecty-data; do NOT use for MCP server setup — use konecty-setup."
 ---
 
 # Konecty Meta
 
-All Konecty metadata operations in one skill: authentication, field discovery, and full metadata management across all 11 meta types.
+Procedural guide for all Konecty **metadata** administration. Execution happens
+through Konecty's admin MCP tools (`meta_*`) — this skill teaches which tool to call,
+with which payload shape, and which guardrails to respect. It ships no scripts and
+makes no HTTP calls.
 
-## Prerequisites
+> **Requires the `konecty-admin` MCP server connected** (Konecty admin MCP at
+> `<company-url>/admin-mcp`) and a user with `admin: true`. If the `meta_*` tools are
+> not available, stop and guide the user through the **konecty-setup** skill.
 
-Requires **admin** credentials in `~/.konecty/.env`:
+## Authentication (two paths)
 
-```
-KONECTY_URL=https://<host>
-KONECTY_TOKEN=<authId>  # user must have admin: true
-```
+- **Interim (today)**: the `konecty-admin` server entry is registered with an
+  `Authorization: Bearer <authTokenId>` header, where `authTokenId` comes from an
+  admin user's OTP login (obtained during setup). When it expires, re-run the setup
+  "fix auth" flow to get a new token and re-register the header.
+- **Target (OAuth)**: Konecty grants the `admin` OAuth scope to **trusted clients**
+  (provisioned via `OAUTH_CLIENTS_JSON`, ADR-0011) at consent — only for users with
+  `admin: true`, shown unchecked with a risk warning. Once your Konecty ships it,
+  **switching is a re-registration only** (`claude mcp remove` + `add` with
+  `--client-id`/`--callback-port`; see konecty-setup) — nothing in this skill changes.
 
-If credentials are missing or expired, use the OTP auth flow first — see [references/auth.md](references/auth.md).
+Either way, tools are called **without** any token argument — auth travels in the
+HTTP header. See [references/auth.md](references/auth.md).
 
-## Commands
+## Tool inventory (admin MCP — 12 tools)
 
-| Trigger Pattern | Reference |
-|----------------|-----------|
-| Log in, authenticate, OTP login, get token, fazer login, autenticar, abrir sessão, obter token Konecty | [references/auth.md](references/auth.md) |
-| List modules, discover fields, listar módulos, descobrir campos, que campos tem, tipos de campo | [references/field-discovery.md](references/field-discovery.md) |
-| Read metadata, list documents, inspect meta, ler metadados, listar documentos meta, inspecionar esquema | [references/read.md](references/read.md) |
-| Manage document schema, add/remove fields, gerenciar documento, adicionar campo, remover campo, editar schema | [references/document.md](references/document.md) |
-| Manage list meta, add column, configure list view, gerenciar lista, adicionar coluna, configurar lista | [references/list.md](references/list.md) |
-| Manage view/form layout, gerenciar formulário, configurar view, layout de formulário, visual groups | [references/view.md](references/view.md) |
-| Manage access profile, set permissions, gerenciar perfil de acesso, permissões de campo, filtro de leitura | [references/access.md](references/access.md) |
-| Manage pivot/report, configurar relatório pivot, gerenciar pivot, definir agregações | [references/pivot.md](references/pivot.md) |
-| Generate hook, manage hook code, gerar hook, gerenciar hook, criar scriptBeforeValidation, validationScript | [references/hook.md](references/hook.md) |
-| Configure namespace, SMTP, RabbitMQ, configurar namespace, configurar servidor de email, fila RabbitMQ | [references/namespace.md](references/namespace.md) |
-| Validate metadata, check integrity, validar metadados, checar integridade, auditoria de metadados | [references/doctor.md](references/doctor.md) |
-| Sync metadata, deploy metas, push to prod, sincronizar metadados, aplicar metas, deploy schema | [references/sync.md](references/sync.md) |
-| Remove metadata module, delete meta, remover módulo meta, deletar metadado, excluir documento meta | [references/remove.md](references/remove.md) |
+| Tool | Input | Purpose |
+|------|-------|---------|
+| `meta_read` | `name` | Read a document metadata object by name |
+| `meta_document_upsert` | `id`, `document` | Create/update a document schema |
+| `meta_list_upsert` | `id`, `list` | Create/update a list meta |
+| `meta_view_upsert` | `id`, `view` | Create/update a view (form) meta |
+| `meta_access_upsert` | `id`, `access` | Create/update an access profile |
+| `meta_pivot_upsert` | `id`, `pivot` | Create/update a pivot meta |
+| `meta_hook_validate` | `script` | Validate hook code **before** saving |
+| `meta_hook_upsert` | `id`, `hook` | Persist hook metadata (validate first!) |
+| `meta_namespace_update` | `patch` | Patch the Namespace singleton (incl. MCP flags) |
+| `meta_doctor_run` | — | Run metadata integrity checks |
+| `meta_sync_plan` | `items` | Plan a repo↔database metadata sync |
+| `meta_sync_apply` | `items`, `autoApprove` | Apply a reviewed sync plan |
 
-## Shared files (gated)
+## Flow → reference map
 
-`scripts/auth.py` and `scripts/modules.py` are byte-identical with `konecty-data`. A pre-commit hook and GitHub Action enforce this — changes must be applied to both skills simultaneously. See `shared-files.txt` for the full manifest.
+| User intent (pt-BR / EN) | Reference |
+|--------------------------|-----------|
+| Ler metadados, inspecionar esquema, listar metas / read metadata, inspect schema | [references/read.md](references/read.md) |
+| Gerenciar documento, adicionar/remover campo, editar schema / manage document schema, add fields | [references/document.md](references/document.md) |
+| Gerenciar lista, adicionar coluna / manage list, columns | [references/list.md](references/list.md) |
+| Gerenciar formulário/view, visual groups / manage form view | [references/view.md](references/view.md) |
+| Perfil de acesso, permissões, filtros de leitura / access profiles, permissions | [references/access.md](references/access.md) |
+| Relatório pivot, agregações / pivot reports | [references/pivot.md](references/pivot.md) |
+| Gerar/validar hook, scriptBeforeValidation, validationScript / hooks | [references/hook.md](references/hook.md) |
+| Namespace, SMTP, RabbitMQ, habilitar MCP, modo somente leitura / namespace config, MCP flags | [references/namespace.md](references/namespace.md) |
+| Validar integridade, auditoria de metadados / validate metadata | [references/doctor.md](references/doctor.md) |
+| Sincronizar metas, deploy de schema / sync metadata repo↔db | [references/sync.md](references/sync.md) |
+| Remover módulo meta, excluir documento meta / remove meta module | [references/remove.md](references/remove.md) — **MCP gap, read first** |
+| Descobrir campos de dados / data-side field discovery | [references/field-discovery.md](references/field-discovery.md) |
+
+## Guardrails (non-negotiable)
+
+1. **Upserts replace the whole meta object.** Always read the current state first
+   (`meta_read` for documents; your metadata repo for child metas) and send the
+   **complete** definition — a partial payload erases what you omit. Exception:
+   `meta_namespace_update` is a real patch.
+2. **Hooks**: `meta_hook_validate` **before** `meta_hook_upsert`, always. No
+   `require`/`import`, no comments in hook source ([hook.md](references/hook.md)).
+3. **Sync**: `meta_sync_plan` first; review with the user; only then
+   `meta_sync_apply` with `autoApprove: true` — the tool refuses to apply without it.
+4. **Full-module removal has no MCP tool.** Never improvise REST calls — follow
+   [references/remove.md](references/remove.md).
+5. **`_id` conventions**: `Contact` (document), `Contact:list:Default`,
+   `Contact:view:Default`, `Contact:access:Corretor`, `Contact:pivot:Default`,
+   `Namespace` (singleton). The upsert `id` argument is this `_id`.
+6. After metadata changes, offer `meta_doctor_run` to check integrity.
