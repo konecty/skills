@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint validate shared-check installer-test test test-cov audit check clean \
+.PHONY: help setup lint validate installer-test test test-cov audit check clean \
         publish-gh publish-clawhub publish-hermes publish
 
 DATA       := skills/konecty-data
@@ -19,12 +19,9 @@ setup: ## Point git at .githooks (idempotent — run after cloning)
 	git config core.hooksPath .githooks
 	@echo "Git hooks path set to .githooks"
 
-lint: ## Byte-compile every skill script (stdlib syntax check)
-	@find skills -name '*.py' -not -path '*/__pycache__/*' -print0 | \
+lint: ## Byte-compile all Python — installer + any remaining scripts (stdlib syntax check)
+	@find installer skills e2e tests -name '*.py' -not -path '*/__pycache__/*' -print0 | \
 		xargs -0 python3 -m py_compile && echo "py_compile OK"
-
-shared-check: ## Run the gated shared-files divergence guard
-	@.githooks/pre-commit
 
 validate: ## Validate all SKILL.md against the agentskills.io spec (needs gh skill)
 	@command -v gh >/dev/null 2>&1 || { echo "gh not installed — skipping"; exit 0; }
@@ -43,7 +40,7 @@ audit: ## Code-health + security audit (the completion gate before a PR)
 	@bash .agents/skills/codebase-intelligence/scripts/audit.sh . --changed-since main
 	@bash .agents/skills/codebase-security/scripts/audit.sh . --changed-since main
 
-check: lint shared-check installer-test ## Offline gate: syntax + shared-files divergence + installer tests (no live server)
+check: lint installer-test ## Offline gate: Python syntax + installer tests (no live server)
 
 clean: ## Remove Python and coverage artifacts
 	@find . -path ./.agents -prune -o -name '__pycache__' -type d -print0 2>/dev/null | xargs -0 rm -rf
