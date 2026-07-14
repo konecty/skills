@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Konecty Agent Skills for Claude Code",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "plugins": [
     {
@@ -14,7 +14,7 @@
       "source": "./",
       "skills": ["./skills/"],
       "description": "MCP-first skills for your Konecty CRM (data, metadata, setup, integration dev). Bundles konecty-data, konecty-meta, konecty-setup and konecty-dev. No server URL baked in — konecty-setup registers your company's MCP endpoint conversationally after install.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "license": "AGPL-3.0",
       "keywords": ["konecty", "crm", "low-code", "mcp"]
     }
