@@ -147,6 +147,58 @@ class TestProbeWellKnown(unittest.TestCase):
             result = probe_well_known(self.URL)
         self.assertEqual(result["status"], "bad_json")
 
+    def test_probe_sends_cli_user_agent(self):
+        # WAFs 403 the default Python-urllib agent (seen live on crm.konecty.dev).
+        from konecty_skills.mcp_config import USER_AGENT
+
+        body = json.dumps({"resource": f"{self.URL}/mcp"}).encode()
+        with patch("urllib.request.urlopen", return_value=_fake_response(body)) as mock_open:
+            probe_well_known(self.URL)
+        req = mock_open.call_args[0][0]
+        self.assertEqual(req.get_header("User-agent"), USER_AGENT)
+        self.assertTrue(USER_AGENT.startswith("konecty-skills/"))
+
+    def test_issuer_ok_when_host_matches(self):
+        body = json.dumps(
+            {"resource": f"{self.URL}/mcp", "authorization_servers": [self.URL]}
+        ).encode()
+        with patch("urllib.request.urlopen", return_value=_fake_response(body)):
+            result = probe_well_known(self.URL)
+        self.assertEqual(result["issuer"], self.URL)
+        self.assertIsNone(result["issuer_warning"])
+
+    def test_issuer_localhost_fallback_is_flagged(self):
+        # Server fallback when KONECTY_URL/OAUTH_ISSUER_URL are unset.
+        body = json.dumps(
+            {
+                "resource": f"{self.URL}/mcp",
+                "authorization_servers": ["http://localhost:3000"],
+            }
+        ).encode()
+        with patch("urllib.request.urlopen", return_value=_fake_response(body)):
+            result = probe_well_known(self.URL)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["issuer"], "http://localhost:3000")
+        self.assertIn("KONECTY_URL/OAUTH_ISSUER_URL", result["issuer_warning"])
+
+    def test_issuer_foreign_host_is_flagged(self):
+        body = json.dumps(
+            {
+                "resource": f"{self.URL}/mcp",
+                "authorization_servers": ["https://other.example.com"],
+            }
+        ).encode()
+        with patch("urllib.request.urlopen", return_value=_fake_response(body)):
+            result = probe_well_known(self.URL)
+        self.assertIn("expected host", result["issuer_warning"])
+
+    def test_missing_authorization_servers_is_flagged(self):
+        body = json.dumps({"resource": f"{self.URL}/mcp"}).encode()
+        with patch("urllib.request.urlopen", return_value=_fake_response(body)):
+            result = probe_well_known(self.URL)
+        self.assertIsNone(result["issuer"])
+        self.assertIn("no authorization_servers", result["issuer_warning"])
+
 
 class TestCommandBuilders(unittest.TestCase):
     """Argv lists must match the konecty-setup skill templates exactly."""

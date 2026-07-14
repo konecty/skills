@@ -15,6 +15,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+
+def _user_agent() -> str:
+    """CLI User-Agent (lazy import to avoid a module cycle with mcp_config)."""
+    from .mcp_config import USER_AGENT
+
+    return USER_AGENT
+
 DEFAULT_ENV_PATH: Path = Path.home() / ".konecty" / ".env"
 
 
@@ -77,7 +84,11 @@ def _post_json(url: str, payload: dict, timeout: int = 30) -> dict:
         url,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": _user_agent(),
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310  # nosec B310 - scheme guarded above
