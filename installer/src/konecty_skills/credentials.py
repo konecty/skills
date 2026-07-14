@@ -88,6 +88,10 @@ def _post_json(url: str, payload: dict, timeout: int = 30) -> dict:
             "Content-Type": "application/json",
             "Accept": "application/json",
             "User-Agent": _user_agent(),
+            # /api/auth/* sits in Konecty's strict-CORS zone: requests without
+            # browser fetch metadata are rejected with 403 "Origin header
+            # required". Non-browser clients declare themselves with this.
+            "Sec-Fetch-Site": "none",
         },
     )
     try:
@@ -97,11 +101,26 @@ def _post_json(url: str, payload: dict, timeout: int = 30) -> dict:
         return {}
 
 
+def normalize_phone(identifier: str) -> str:
+    """Best-effort E.164 normalization mirroring the Konecty MCP session tools.
+
+    The server requires E.164 (``+5511999999999``). Brazilian users typically
+    type DDD+number (10-11 digits) — prepend ``+55``, as documented in
+    Konecty's mcp.md. Anything already starting with ``+`` passes through.
+    """
+    cleaned = identifier.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    if cleaned.startswith("+"):
+        return cleaned
+    if cleaned.isdigit() and len(cleaned) in (10, 11):
+        return f"+55{cleaned}"
+    return cleaned
+
+
 def _identifier_payload(identifier: str) -> dict:
     """Map an identifier to the Konecty OTP payload key (email vs phoneNumber)."""
     if "@" in identifier:
         return {"email": identifier}
-    return {"phoneNumber": identifier}
+    return {"phoneNumber": normalize_phone(identifier)}
 
 
 def request_otp(url: str, identifier: str) -> bool:

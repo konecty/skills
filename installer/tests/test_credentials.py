@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from konecty_skills.credentials import (
     current_env,
+    normalize_phone,
     otp_login,
     request_otp,
     validate_url,
@@ -18,6 +19,25 @@ from konecty_skills.credentials import (
     write_env,
     write_url_only,
 )
+
+
+class TestNormalizePhone(unittest.TestCase):
+    """E.164 normalization mirroring the Konecty MCP session tools."""
+
+    def test_e164_passthrough(self):
+        self.assertEqual(normalize_phone("+5511999999999"), "+5511999999999")
+
+    def test_brazilian_11_digits_gets_plus55(self):
+        self.assertEqual(normalize_phone("11999999999"), "+5511999999999")
+
+    def test_brazilian_10_digits_gets_plus55(self):
+        self.assertEqual(normalize_phone("1133334444"), "+551133334444")
+
+    def test_separators_are_stripped(self):
+        self.assertEqual(normalize_phone("(11) 99999-9999"), "+5511999999999")
+
+    def test_other_lengths_pass_through(self):
+        self.assertEqual(normalize_phone("123"), "123")
 
 
 class TestValidateUrl(unittest.TestCase):
@@ -118,6 +138,13 @@ class TestOtpOverHttp(unittest.TestCase):
         _endpoint, payload = mock_post.call_args[0]
         self.assertEqual(payload, {"phoneNumber": "+5511999999999"})
 
+    def test_request_otp_normalizes_brazilian_phone(self):
+        # Live failure: "11111111111" was sent raw and rejected as non-E.164.
+        with patch("konecty_skills.credentials._post_json", return_value={"success": True}) as mock_post:
+            self.assertTrue(request_otp(self.URL, "11999999999"))
+        _endpoint, payload = mock_post.call_args[0]
+        self.assertEqual(payload, {"phoneNumber": "+5511999999999"})
+
     def test_request_otp_failure(self):
         with patch("konecty_skills.credentials._post_json", return_value={}):
             self.assertFalse(request_otp(self.URL, "admin@h.example"))
@@ -160,6 +187,29 @@ class TestOtpOverHttp(unittest.TestCase):
         ):
             self.assertIsNone(otp_login(self.URL, "admin@h.example"))
         mock_ver.assert_not_called()
+
+    def test_post_json_sends_strict_cors_and_user_agent_headers(self):
+        # /api/auth/* is a strict-CORS zone: without Sec-Fetch-Site the server
+        # answers 403 "Origin header required" (reproduced live).
+        import json as _json
+        from unittest.mock import MagicMock
+
+        from konecty_skills.credentials import _post_json
+        from konecty_skills.mcp_config import USER_AGENT
+
+        resp = MagicMock()
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        resp.read.return_value = b"{}"
+        with patch("json.load", return_value={"success": True}), patch(
+            "urllib.request.urlopen", return_value=resp
+        ) as mock_open:
+            result = _post_json("https://h.example/api/auth/request-otp", {"a": 1})
+        self.assertEqual(result, {"success": True})
+        req = mock_open.call_args[0][0]
+        self.assertEqual(req.get_header("Sec-fetch-site"), "none")
+        self.assertEqual(req.get_header("User-agent"), USER_AGENT)
+        self.assertEqual(_json.loads(req.data.decode()), {"a": 1})
 
     def test_post_json_network_error_returns_empty(self):
         import urllib.error
