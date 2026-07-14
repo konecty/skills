@@ -98,7 +98,7 @@ publish-clawhub: validate ## Publish all skills to OpenClaw/clawhub (needs: npm 
 	done
 
 publish-hermes: ## Publish all skills to Hermes/NousResearch (GitHub-backed, no separate auth)
-	@command -v hermes >/dev/null 2>&1 || { echo "ERROR: hermes not installed"; exit 1; }
+	@command -v hermes >/dev/null 2>&1 || { echo "WARN: hermes not installed — skipping Hermes publish"; exit 0; }
 	@for s in $(ALL_SKILLS); do \
 		echo "== $$s =="; \
 		hermes skills publish $$s --to github --repo konecty/skills || exit 1; \
