@@ -20,11 +20,11 @@ normalized company base URL (see *URL validation*).
 # User MCP (data + OAuth login)
 claude mcp add --transport http --scope user konecty <url>/mcp
 
-# Admin MCP — interim path (Bearer authTokenId from an admin OTP login)
-claude mcp add --transport http --scope user konecty-admin <url>/admin-mcp --header "Authorization: Bearer <authTokenId>"
-
-# Admin MCP — OAuth target path (once the deployment seeds a trusted client)
+# Admin MCP — default path (OAuth trusted client; browser login on first use)
 claude mcp add --transport http --scope user konecty-admin <url>/admin-mcp --client-id <trusted-client-id> --callback-port <port>
+
+# Admin MCP — fallback path (Bearer authTokenId from an admin OTP login; legacy / older Konecty)
+claude mcp add --transport http --scope user konecty-admin <url>/admin-mcp --header "Authorization: Bearer <authTokenId>"
 
 # Removal (always before re-adding — replace, never duplicate)
 claude mcp remove --scope user konecty
@@ -82,31 +82,47 @@ Replace, never duplicate:
 
 - **User MCP (OAuth)**: 401/UNAUTHORIZED on `konecty` tools → re-authenticate in
   Claude Code (`/mcp` → reconnect, browser login again). Nothing to reconfigure.
-- **Admin MCP (interim token)**: 401 on `meta_*` tools → the `authTokenId` expired.
-  Re-run the admin OTP path below and re-register the `konecty-admin` entry
-  (remove + add with the fresh token).
+- **Admin MCP (OAuth, default)**: 401/UNAUTHORIZED on `meta_*` tools →
+  re-authenticate in Claude Code (`/mcp` → `konecty-admin` → reconnect, browser
+  login again). Nothing to reconfigure.
+- **Admin MCP (OTP fallback token)**: 401 on `meta_*` tools when using the
+  Bearer path → the `authTokenId` expired. Re-run the admin OTP path below and
+  re-register the `konecty-admin` entry (remove + add with the fresh token).
 
 ## Flow: admin path
 
-**Interim (today)** — Bearer `authTokenId` from an admin OTP login:
+**Default (OAuth trusted client)** — no stored token; the `admin` scope is
+granted at the browser consent on first use:
+
+1. The user must be a Konecty admin (`admin: true`).
+2. The deployment must seed a trusted first-party client via `OAUTH_CLIENTS_JSON`
+   (`trustedFirstParty: true` and `admin` in `allowedScopes`; recipe in
+   Konecty's `docs/en/mcp.md`). Its registered redirect URI must be exactly
+   `http://localhost:<port>/callback`.
+3. Register the admin server with template 2 (`--client-id` + `--callback-port`,
+   the port matching the client's registered redirect port). Documented example
+   values: client id `claude-code-admin`, callback port `19819`. Remove any
+   existing `konecty-admin` entry first. (The installer's `konecty-skills
+   install` admin step does the same by default.)
+4. Login happens on **first use**: `/mcp` in Claude Code → pick `konecty-admin`
+   → Authenticate → the browser opens. At consent, `admin` appears **unchecked
+   with a warning** and only for users with `admin: true`. Approve it. Nothing
+   is stored on disk — Claude Code holds and refreshes the token.
+5. If the `admin` option does not appear at consent, the trusted client is not
+   seeded (or the user is not an admin) — see
+   [references/troubleshooting.md](references/troubleshooting.md).
+
+**Fallback (interim OTP → Bearer)** — for older Konecty without the trusted
+client, or when explicitly requested (`konecty-skills install --admin-auth otp`):
 
 1. The user must be a Konecty admin (`admin: true`).
 2. Run the OTP flow with the `session_*` tools on the **user MCP** (`konecty`
    server): `session_login_options` → `session_request_otp_email` /
    `session_request_otp_phone` → ask the user for the code →
    `session_verify_otp_email` / `session_verify_otp_phone` → returns `authId`.
-   (The installer's `konecty-skills install` admin step does the same.)
-3. Register the admin server with template 2, using `authId` as `<authTokenId>`.
+3. Register the admin server with template 3, using `authId` as `<authTokenId>`.
    Remove any existing `konecty-admin` entry first.
 4. Never echo or store the OTP code; the token lives only in the MCP entry header.
-
-**Target (OAuth)** — once the deployment seeds a trusted client
-(`OAUTH_CLIENTS_JSON` with `trustedFirstParty: true` and `admin` in
-`allowedScopes`; recipe in Konecty's `docs/en/mcp.md`): switching is
-re-registration only — remove `konecty-admin` and re-add with template 3
-(`--client-id` + `--callback-port`, matching the client's registered redirect
-port). At consent, `admin` appears **unchecked with a warning** and only for
-users with `admin: true`. Nothing else changes.
 
 ## Troubleshooting
 

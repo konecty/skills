@@ -20,6 +20,9 @@ from . import __version__
 DEFAULT_REF = "main"
 ENGINES = ("claude", "agents", "cursor")
 SCOPES = ("project", "global")
+ADMIN_AUTH_MODES = ("oauth", "otp")
+DEFAULT_ADMIN_CLIENT_ID = "claude-code-admin"
+DEFAULT_ADMIN_CALLBACK_PORT = 19819
 
 
 # --- konecty home path seam (overridable via KONECTY_HOME env var) ----------
@@ -54,8 +57,60 @@ def _report_registration(result: dict, name: str) -> str:
     return "failed"
 
 
+def _install_admin_oauth(mcp_url: str) -> None:
+    """Default admin path: register konecty-admin via the OAuth trusted client.
+
+    Prompts for the trusted client_id and callback port (with the documented
+    defaults), registers the admin server, and explains that the browser login
+    happens on first use and requires a server-seeded trusted client.
+    """
+    from . import mcp_config, ui
+
+    client_id = ui.ask("Trusted client_id", DEFAULT_ADMIN_CLIENT_ID)
+    port_raw = ui.ask("OAuth callback port", str(DEFAULT_ADMIN_CALLBACK_PORT))
+    try:
+        callback_port = int(port_raw)
+    except ValueError:
+        ui.warn(f"Invalid port {port_raw!r}; using {DEFAULT_ADMIN_CALLBACK_PORT}.")
+        callback_port = DEFAULT_ADMIN_CALLBACK_PORT
+
+    result = mcp_config.register(
+        mcp_config.ADMIN_SERVER,
+        mcp_config.build_add_admin_oauth(mcp_url, client_id, callback_port),
+    )
+    status = _report_registration(result, mcp_config.ADMIN_SERVER)
+    if status != "failed":
+        ui.step(
+            "Admin OAuth login happens on FIRST USE, not now: open `claude`, run "
+            "/mcp, pick 'konecty-admin' and Authenticate — the browser opens and "
+            "the consent screen will list the 'admin' scope."
+        )
+        ui.step(
+            "This requires a trusted client seeded on the server "
+            "(OAUTH_CLIENTS_JSON). If the 'admin' option does not appear at "
+            "consent, see the konecty-setup troubleshooting matrix."
+        )
+
+
+def _install_admin_otp(mcp_url: str) -> None:
+    """Fallback admin path (legacy / older Konecty): OTP → Bearer authTokenId."""
+    from . import credentials, mcp_config, ui
+
+    identifier = ui.ask("Admin email or phone (E.164)")
+    admin_token = credentials.otp_login(mcp_url, identifier)
+    if admin_token:
+        credentials.write_env(mcp_url, admin_token, _env_path())
+        admin_result = mcp_config.register(
+            mcp_config.ADMIN_SERVER,
+            mcp_config.build_add_admin_token(mcp_url, admin_token),
+        )
+        _report_registration(admin_result, mcp_config.ADMIN_SERVER)
+    else:
+        ui.warn("Admin OTP login failed; skipping konecty-admin registration.")
+
+
 def cmd_install(args: argparse.Namespace) -> int:
-    from . import banner, credentials, engines, fetcher, installer, manifest, mcp_config, ui
+    from . import banner, engines, fetcher, installer, manifest, mcp_config, ui
 
     assume_yes: bool = args.yes
 
@@ -122,21 +177,16 @@ def cmd_install(args: argparse.Namespace) -> int:
             "pick 'konecty' and Authenticate — the browser will open."
         )
 
-        # 6. Optional admin path (interim: OTP → Bearer authTokenId header).
+        # 6. Optional admin path. OAuth trusted-client is the default; OTP is a
+        #    labeled fallback for older Konecty (or --admin-auth otp). The step
+        #    stays interactive-only, so under --yes admin is skipped entirely.
         if not assume_yes and ui.confirm(
             "Set up admin MCP access (requires a Konecty admin user)?", False, False
         ):
-            identifier = ui.ask("Admin email or phone (E.164)")
-            admin_token = credentials.otp_login(mcp_url, identifier)
-            if admin_token:
-                credentials.write_env(mcp_url, admin_token, _env_path())
-                admin_result = mcp_config.register(
-                    mcp_config.ADMIN_SERVER,
-                    mcp_config.build_add_admin_token(mcp_url, admin_token),
-                )
-                _report_registration(admin_result, mcp_config.ADMIN_SERVER)
+            if args.admin_auth == "otp":
+                _install_admin_otp(mcp_url)
             else:
-                ui.warn("Admin OTP login failed; skipping konecty-admin registration.")
+                _install_admin_oauth(mcp_url)
 
     # 7. Fetch skills.
     try:
@@ -558,6 +608,11 @@ def build_parser() -> argparse.ArgumentParser:
     for name, handler in handlers.items():
         sp = sub.add_parser(name, help=helps[name])
         _common_flags(sp)
+        if name == "install":
+            sp.add_argument(
+                "--admin-auth", choices=ADMIN_AUTH_MODES, default="oauth",
+                help="admin MCP auth path (default: oauth trusted client; otp = legacy fallback)",
+            )
         if name == "status" or name == "doctor":
             sp.add_argument("--all", action="store_true", help="report every installation, not just the current dir")
         if name == "uninstall":
