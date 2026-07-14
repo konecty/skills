@@ -34,8 +34,37 @@ claude mcp remove --scope user konecty-admin
 Server names are fixed: `konecty` and `konecty-admin`. Registration is always
 `--scope user` — the CRM follows the person across projects.
 
+**When you (the setup agent) have a shell, run `claude mcp add` yourself** with the
+URL the user gave — do not just print it. Registration is fully automatable; the one
+unavoidable human step is clicking **Authenticate** and approving consent in the
+browser (see *OAuth login by environment*).
+
 **If the `claude` CLI is not available** in the current environment, do not fail:
 print the exact commands above (with values filled in) for the user to run manually.
+
+The **konecty-crm plugin ships skills only** and registers the MCP server through a
+normal `claude mcp add`, so `/mcp` → Authenticate works for it. (Plugin-*embedded*
+MCP servers cannot be `/mcp`-authenticated — that is not our case; do not tell users
+to look for a plugin auth UI.)
+
+## OAuth login by environment (not terminal-only)
+
+OAuth login is done differently per environment. **The desktop app is a first-class
+OAuth environment, not terminal-only.** Pick the row that matches where the session
+runs:
+
+| Environment | How the user authenticates |
+|-------------|----------------------------|
+| **CLI** and **desktop app** | In-app: `/mcp` → select the server → **Authenticate** → browser opens (callback `http://localhost:PORT/callback`). Also reachable via **Customize → Connectors**. Tokens are stored in the OS keychain. |
+| **claude.ai (web)** | NOT inside Claude Code. The user adds/authenticates the server at **claude.ai/customize/connectors**; it then appears in Claude Code sessions (manage/view with `/mcp`). |
+| **Headless / SSH / `claude -p` / no browser** | Either (a) `claude mcp login <name> --no-browser` — prints an auth URL to open on a machine with a browser, then paste the redirect back (needs an interactive TTY, e.g. `ssh -t`); or (b) the **Bearer-token fallback** — register with `--header "Authorization: Bearer <authTokenId>"` (authTokenId from the Konecty OTP flow), which bypasses the browser entirely and works for BOTH `konecty` and `konecty-admin`; or (c) `headersHelper` in `.mcp.json` for rotating tokens. |
+
+**If konecty-setup itself is running where no browser can open** (headless / `-p` /
+SSH without a display): do **not** dead-end at "use the terminal". Instead: (i) still
+complete the `claude mcp add` registration, then (ii) tell the user they can finish
+auth by opening the **same project in the desktop app or CLI** and running `/mcp` →
+**Authenticate**, OR use the `--no-browser` paste flow, OR the Bearer-token fallback
+above. Never leave the user without a path.
 
 ## URL validation (before any registration)
 
@@ -59,10 +88,12 @@ print the exact commands above (with values filled in) for the user to run manua
 1. Validate the URL (above).
 2. Register the user MCP (template 1). If an old `konecty` entry exists
    (`claude mcp list`), remove it first.
-3. Walk the user through the browser OAuth login: on the first tool call (or via
-   `/mcp` in Claude Code) the browser opens → log into Konecty → the consent screen
-   lists the requested scopes (`read`, and `write` when the namespace enables
-   writes) → approve. Claude Code stores and refreshes the token automatically.
+3. Walk the user through the OAuth login using the row for their environment (see
+   *OAuth login by environment*): in the CLI/desktop app it is `/mcp` → Authenticate
+   (browser); on claude.ai web it is claude.ai/customize/connectors; headless uses
+   `--no-browser` or the Bearer fallback. On the consent screen the user approves the
+   requested scopes (`read`, and `write` when the namespace enables writes). Claude
+   Code stores and refreshes the token automatically.
 4. Verify: call a cheap tool (e.g. `modules_list`) and confirm it answers.
 5. Offer the admin path (below) only if the user is a Konecty admin and wants
    metadata operations (konecty-meta).
@@ -104,10 +135,12 @@ granted at the browser consent on first use:
    values: client id `claude-code-admin`, callback port `19819`. Remove any
    existing `konecty-admin` entry first. (The installer's `konecty-skills
    install` admin step does the same by default.)
-4. Login happens on **first use**: `/mcp` in Claude Code → pick `konecty-admin`
-   → Authenticate → the browser opens. At consent, `admin` appears **unchecked
-   with a warning** and only for users with `admin: true`. Approve it. Nothing
-   is stored on disk — Claude Code holds and refreshes the token.
+4. Login happens on **first use**, per the *OAuth login by environment* matrix
+   (CLI/desktop app: `/mcp` → pick `konecty-admin` → Authenticate → browser;
+   web: claude.ai/customize/connectors; headless: `--no-browser` or Bearer). At
+   consent, `admin` appears **unchecked with a warning** and only for users with
+   `admin: true`. Approve it. Nothing is stored on disk — Claude Code holds and
+   refreshes the token.
 5. If the `admin` option does not appear at consent, the trusted client is not
    seeded (or the user is not an admin) — see
    [references/troubleshooting.md](references/troubleshooting.md).
