@@ -63,6 +63,36 @@ and enablement troubleshooting ("set up konecty", "connect my CRM").
 
 ---
 
+## Install via plugin (no terminal)
+
+No `uv`, no terminal, no copying folders. Install the 4 skills straight from the Claude
+Code UI, in three steps:
+
+1. **Add the marketplace** — inside Claude Code, run:
+
+   ```
+   /plugin marketplace add konecty/skills
+   ```
+
+2. **Open the manager** — run `/plugin`, go to the **Discover** tab and select the
+   **Konecty CRM Skills** plugin (`konecty-crm`).
+
+3. **Install** — confirm the scope (user / project / local) and you're done. Run
+   `/reload-plugins` to activate. The 4 skills become available under the `konecty-crm:`
+   namespace (`konecty-crm:konecty-data`, `konecty-crm:konecty-meta`,
+   `konecty-crm:konecty-setup`, `konecty-crm:konecty-dev`).
+
+**After installing, just tell Claude your Konecty URL** — for example _"set up konecty,
+my company is https://yourcompany.konecty.com"_. The **konecty-setup** skill does the
+rest: it registers your company's MCP server and opens the OAuth login in the browser.
+The plugin embeds **no** server URL — every customer has their own, so MCP registration
+is always conversational and per-company.
+
+> Prefer the terminal? The [quick `uvx` install](#quick-install) is still available and
+> performs the exact same MCP registration.
+
+---
+
 ## The four skills
 
 | Skill | MCP server | What it teaches |
