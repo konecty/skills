@@ -4,6 +4,7 @@ All notable changes to KonectySkills are documented here.
 
 | Date | Summary |
 |------|---------|
+| [2026-07-14](./2026-07-14_plugin-marketplace.md) | **Plugin + marketplace do Claude Code**: `.claude-plugin/marketplace.json` + `plugin.json` (`konecty-crm` v0.1.1) na raiz do repo — instalação sem terminal via `/plugin marketplace add konecty/skills` → `/plugin`; empacota as 4 skills; **sem `mcpServers`** embutido (registro MCP é por empresa, conversacional via konecty-setup); READMEs pt/en atualizados; aditivo (instalador `uvx` inalterado) |
 | [2026-07-14](./2026-07-14_uvx-root-packaging.md) | **Fix do uvx**: `pyproject.toml` movido de `installer/` para a raiz do repo (fonte única; wheel aponta para `installer/src`) — o one-liner `uvx --from git+…` falhava por não achar packaging na raiz; v0.1.1 |
 | [2026-07-13](./2026-07-13_mcp-first.md) | **MCP-first** (ADR-0006): skills viram guias sobre os servidores MCP do Konecty (`/mcp`, `/admin-mcp`) — zero scripts HTTP; nova skill `konecty-setup`; instalador registra MCP + OAuth no navegador; escopo `admin` OAuth para clientes confiáveis (konecty/Konecty#453); harness e2e reconstruído (cliente JSON-RPC stdlib, 39 casos, build do Konecty local); shared-files invariant dissolvido |
 | [2026-06-17](./2026-06-17_konecty-dev-skill.md) | `konecty-dev` skill (3rd skill, first advisory): teaches developer-agents to write integration code — SDK-first (Python 2.0.3, Node/TS 1.0.0) + full REST track for other languages; lean SKILL.md + 8 references incl. hooks runtime contract; out of the shared-files invariant |
