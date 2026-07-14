@@ -1,125 +1,74 @@
-# Konecty Meta Namespace
+# Meta Namespace — global tenant configuration
 
-Manage the global Namespace singleton configuration.
+Manage the Namespace singleton with `meta_namespace_update` on the `konecty-admin`
+MCP server.
 
-## Prerequisites
+## Tool
 
-Requires **admin** credentials from **konecty-session**. User must have `admin: true`.
+`meta_namespace_update` — input: `patch`. Output: `result`.
 
-## Workflow
+Unlike the `meta_*_upsert` tools, this is a **real patch**: only the keys present in
+`patch` are set; everything else is preserved. Still, nested objects are replaced
+wholesale per key — to change one email server inside `emailServers`, send the
+complete `emailServers` map with your change applied.
 
-### 1. Show the full Namespace
+Namespace changes affect the whole tenant (email, queues, storage, sessions, MCP
+availability). Restate what will change and get user confirmation before patching.
 
-```bash
-python3 scripts/meta_namespace.py show
+## MCP enablement flags (this skill's own gates)
+
+These namespace keys control MCP availability — the errors they cause are mapped in
+[errors → konecty-data](../../konecty-data/references/errors.md) and in
+konecty-setup's troubleshooting:
+
+| Key | Type | Effect |
+|-----|------|--------|
+| `mcpUserEnabled` | boolean | Off ⇒ `/mcp` returns service unavailable (503) |
+| `mcpAdminEnabled` | boolean | Off ⇒ `/admin-mcp` returns service unavailable (503) |
+| `mcpRoleIds` | string[] | Role `_id`s allowed on the user MCP. **Deny-by-default**: empty/absent ⇒ nobody has access (403 `mcp_access_denied`). Applies to every user-MCP caller — cannot be bypassed per session |
+| `mcpUserWriteEnabled` | boolean | Absent/`false` ⇒ **read-only**: `write` scope stripped from every user-MCP caller; write/destructive tools rejected with `insufficient_scope`. `true` ⇒ editing enabled |
+
+Example — enable writes over the user MCP:
+
+```json
+{ "patch": { "mcpUserWriteEnabled": true } }
 ```
 
-### 2. List email servers
+Example — allowlist roles:
 
-```bash
-python3 scripts/meta_namespace.py email-servers
+```json
+{ "patch": { "mcpRoleIds": ["<role-_id-1>", "<role-_id-2>"] } }
 ```
 
-### 3. Set or update an email server
-
-```bash
-python3 scripts/meta_namespace.py set-email-server smtp_acme --host email-smtp.us-east-1.amazonaws.com --port 2587 --user AKIA... --pass secret
-```
-
-### 4. Show queue configuration
-
-```bash
-python3 scripts/meta_namespace.py queue-config
-```
-
-### 5. Add a queue to a resource
-
-```bash
-python3 scripts/meta_namespace.py add-queue rabbitmq_default my-new-queue
-```
-
-### 6. Set a global webhook
-
-```bash
-python3 scripts/meta_namespace.py set-webhook onCreate "https://api.example.com/sync/\${documentId}/\${dataId}"
-```
-
-### 7. Upsert full Namespace
-
-```bash
-python3 scripts/meta_namespace.py upsert --file namespace.json
-```
-
-## Key concepts
-
-- Singleton: `_id: "Namespace"`, `type: "namespace"`
-- See the Namespace Schema section below for full schema documentation
-- `emailServers` keys are referenced by hooks: `emails.push({ server: "smtp_acme" })`
-- `QueueConfig.resources` are referenced by `document.events`: `event.resource: "rabbitmq_default"`
-- `QueueConfig.konsistent: [resourceName, queueName]` for external Konsistent
-- `plan.useExternalKonsistent` must be `true` for queue-based Konsistent
-- `onCreate/onUpdate/onDelete` are global webhooks for ALL documents
-
-## Script reference
-
-See [scripts/meta_namespace.py](scripts/meta_namespace.py). Stdlib only.
+The Admin MCP (`meta_*`) is not affected by `mcpUserWriteEnabled`; it has its own
+gate (`admin` flag + `admin` scope).
 
 ---
 
 # Namespace Schema Reference
 
-## Overview
-
-Namespace is a singleton document in `MetaObjects` with `_id: "Namespace"` and `type: "namespace"`. It holds the global configuration for the tenant.
-
-In the filesystem repo: `MetaObjects/Namespace/document.json`
-
-## Schema
+Singleton in `MetaObjects`: `_id: "Namespace"`, `type: "namespace"`.
 
 | Field                         | Type                                  | Description                                                |
 | ----------------------------- | ------------------------------------- | ---------------------------------------------------------- |
-| `_id`                         | string                                | Always `"Namespace"`                                       |
-| `type`                        | `"namespace"`                         | Discriminator                                              |
-| `ns`                          | string                                | Namespace identifier (e.g. `"acme"`)                     |
-| `name`                        | string                                | Display name                                               |
-| `shortName`                   | string                                | Short display name                                         |
-| `logoURL`                     | string                                | Logo URL                                                   |
-| `logoBig`                     | string                                | Large logo URL                                             |
-| `logoSmall`                   | string                                | Small logo URL                                             |
-| `siteURL`                     | string                                | Site URL                                                   |
-| `active`                      | boolean                               | Whether the namespace is active                            |
-| `emailServers`                | `Record<key, SmtpConfig>`             | SMTP server configurations                                 |
-| `QueueConfig`                 | QueueConfig                           | RabbitMQ resources and queue definitions                   |
-| `storage`                     | StorageConfig                         | File storage configuration                                 |
-| `plan`                        | PlanConfig                            | Feature flags and plan settings                            |
-| `onCreate`                    | string or string[]                    | HTTP URL(s) called on any record create                    |
-| `onUpdate`                    | string or string[]                    | HTTP URL(s) called on any record update                    |
-| `onDelete`                    | string or string[]                    | HTTP URL(s) called on any record delete                    |
+| `ns`                          | string                                | Namespace identifier (e.g. `"acme"`)                       |
+| `name` / `shortName`          | string                                | Display names                                              |
+| `logoURL` / `logoBig` / `logoSmall` | string                          | Logos                                                      |
+| `active`                      | boolean                               | Namespace active                                           |
+| `emailServers`                | `Record<key, SmtpConfig>`             | SMTP servers (referenced by hooks' `emails.push({ server })`) |
+| `QueueConfig`                 | QueueConfig                           | RabbitMQ resources and queues (referenced by `document.events`) |
+| `storage`                     | StorageConfig                         | File storage (`server` / `s3` / `fs`)                      |
+| `plan`                        | PlanConfig                            | Feature flags (`useExternalKonsistent`, `features`)        |
+| `onCreate` / `onUpdate` / `onDelete` | string or string[]             | Global webhooks for ALL documents (`${documentId}`/`${dataId}` templates) |
 | `public`                      | string[]                              | Namespace fields exposed without authentication            |
-| `trackUserGeolocation`        | boolean                               | Track user GPS location                                    |
-| `trackUserFingerprint`        | boolean                               | Track user browser fingerprint                             |
-| `loginExpiration`             | number                                | Login token expiration (deprecated, use sessionExpiration)  |
-| `sessionExpirationInSeconds`  | number                                | Session timeout in seconds                                 |
-| `dateFormat`                  | string                                | Date format string (Luxon format)                          |
-| `exportXlsLimit`              | number                                | Max rows for XLS export                                    |
-| `sendAlertEmail`              | boolean                               | Send alert emails on certain actions                       |
-| `addressComplementValidation` | string                                | Regex for address complement validation                    |
+| `sessionExpirationInSeconds`  | number                                | Session timeout                                            |
+| `dateFormat`                  | string                                | Date format (Luxon)                                        |
+| `otpConfig`                   | OtpConfig                             | OTP delivery (expiration, WhatsApp, email template)        |
 | `addressSource`               | `"DNE"` or `"Google"`                 | Address lookup provider                                    |
-| `loginPageVariant`            | string                                | Login page variant                                         |
-| `ddd`                         | number                                | Default area code for phone numbers                        |
-| `watermark`                   | string                                | Image watermark identifier                                 |
-| `konfront`                    | object                                | Portal/storefront configuration                            |
-| `coldcall`                    | object                                | Cold call campaign configuration                           |
-| `RocketChat`                  | RocketChatConfig                      | Rocket.Chat integration                                    |
-| `facebookApp`                 | object                                | Facebook integration                                       |
-| `googleApp`                   | object                                | Google OAuth configuration                                 |
-| `otpConfig`                   | OtpConfig                             | OTP delivery settings                                      |
-| `export`                      | `{ largeThreshold }`                  | Export configuration                                       |
-| `flows`                       | object                                | Workflow/flow configuration                                |
+| `mcpUserEnabled` / `mcpAdminEnabled` / `mcpRoleIds` / `mcpUserWriteEnabled` | see above | MCP gates |
+| `RocketChat` / `konfront` / `coldcall` / `facebookApp` / `googleApp` / `flows` | object | Integrations |
 
 ## emailServers
-
-Map of SMTP server configurations. Keys are referenced by hooks via `emails.push({ server: "key" })`.
 
 ```json
 {
@@ -129,32 +78,14 @@ Map of SMTP server configurations. Keys are referenced by hooks via `emails.push
     "auth": { "user": "AKIA...", "pass": "..." },
     "secure": false
   },
-  "default": {
-    "host": "email-smtp.us-east-1.amazonaws.com",
-    "port": 2587,
-    "auth": { "user": "AKIA...", "pass": "..." }
-  }
+  "default": { "host": "...", "port": 2587, "auth": { "user": "...", "pass": "..." } }
 }
 ```
 
-| Field       | Type    | Required | Description                           |
-| ----------- | ------- | -------- | ------------------------------------- |
-| `host`      | string  | yes*     | SMTP host                             |
-| `port`      | number  | yes*     | SMTP port                             |
-| `auth`      | object  | yes*     | `{ user, pass }`                      |
-| `secure`    | boolean | no       | Use TLS                               |
-| `ignoreTLS` | boolean | no       | Skip TLS entirely                     |
-| `service`   | string  | no       | Named service (e.g. `"SES"`) — replaces host/port |
-| `tls`       | object  | no       | `{ rejectUnauthorized: boolean }`     |
-| `authMethod`| string  | no       | SMTP auth method (e.g. `"LOGIN"`)     |
-| `debug`     | boolean | no       | Enable debug logging                  |
-| `useUserCredentials` | boolean | no | Use per-user credentials instead      |
-
-*`host`/`port`/`auth` are required unless `service` is specified.
+`host`/`port`/`auth` required unless `service` (e.g. `"SES"`) is set. Optional:
+`secure`, `ignoreTLS`, `tls.rejectUnauthorized`, `authMethod`, `useUserCredentials`.
 
 ## QueueConfig
-
-Defines RabbitMQ connections and the queues they manage.
 
 ```json
 {
@@ -162,213 +93,48 @@ Defines RabbitMQ connections and the queues they manage.
     "rabbitmq_default": {
       "type": "rabbitmq",
       "url": "amqp://user:pass@host:5672",
-      "queues": [
-        { "name": "acme-sync-postgres" },
-        { "name": "trigger-lead-flow" },
-        { "name": "marketplace-notification-queue" },
-        { "name": "opportunities_filter_changes" },
-        { "name": "ppo_discarded" },
-        { "name": "piperz-create-session-queue" }
-      ]
+      "queues": [{ "name": "acme-sync-postgres" }, { "name": "trigger-lead-flow" }]
     }
   },
   "konsistent": ["rabbitmq_default", "konsistent"]
 }
 ```
 
-### resources
-
-Map of resource names to connection configurations:
-
-| Field           | Type     | Required | Description                        |
-| --------------- | -------- | -------- | ---------------------------------- |
-| `type`          | `"rabbitmq"` | yes  | Resource type (only rabbitmq supported) |
-| `url`           | string   | yes      | AMQP connection URL                |
-| `queues`        | array    | yes      | List of `{ name, driverParams? }` — queues to create on this connection |
-
-### konsistent
-
-Tuple `[resourceName, queueName]` — which queue receives Konsistent change-propagation events.
-
-The Konsistent system propagates changes (inherited fields, reverse lookups, relations) when records are updated. If `plan.useExternalKonsistent` is `true`, these events are published to this queue instead of being processed inline.
+- `resources`: map of connection configs; queue names used by `document.events`
+  must exist in the resource's `queues`.
+- `konsistent`: `[resourceName, queueName]` receiving Konsistent change-propagation
+  events when `plan.useExternalKonsistent` is `true`.
 
 ## storage
 
-File storage configuration. Three types supported:
-
-**Server storage (proxy to external server):**
 ```json
-{
-  "type": "server",
-  "config": {
-    "upload": "https://blob.example.com",
-    "preview": "https://blob.example.com",
-    "headers": { "origin": "https://crm.example.com" }
-  }
-}
-```
-
-**S3 storage:**
-```json
-{
-  "type": "s3",
-  "config": {
-    "bucket": "my-bucket",
-    "region": "us-east-1",
-    "accessKeyId": "...",
-    "secretAccessKey": "..."
-  }
-}
-```
-
-**Filesystem storage:**
-```json
-{
-  "type": "fs",
-  "config": { "directory": "/data/uploads" }
-}
+{ "type": "server", "config": { "upload": "https://blob.example.com", "preview": "https://blob.example.com", "headers": { "origin": "https://crm.example.com" } } }
+{ "type": "s3", "config": { "bucket": "my-bucket", "region": "us-east-1", "accessKeyId": "...", "secretAccessKey": "..." } }
+{ "type": "fs", "config": { "directory": "/data/uploads" } }
 ```
 
 ## plan
 
-Feature flags for the namespace:
-
 ```json
 {
   "useExternalKonsistent": true,
-  "features": {
-    "createHistory": true,
-    "updateInheritedFields": true,
-    "updateReverseLookups": true,
-    "updateRelations": true
-  }
+  "features": { "createHistory": true, "updateInheritedFields": true, "updateReverseLookups": true, "updateRelations": true }
 }
 ```
 
-- `useExternalKonsistent`: When `true`, Konsistent change events are published to `QueueConfig.konsistent` queue instead of processed inline. Requires `QueueConfig.konsistent` to be configured.
-- `features`: Controls which Konsistent operations are active. All default to `true` when not specified.
+## Global webhooks
 
-## onCreate / onUpdate / onDelete
-
-Global HTTP webhook URLs. Called for every record save across all documents. URL template supports `${documentId}` and `${dataId}`.
-
-```json
-{
-  "onCreate": "http://webservices.example.com/sync/${documentId}/${dataId}",
-  "onUpdate": "http://webservices.example.com/sync/${documentId}/${dataId}",
-  "onDelete": "http://webservices.example.com/sync/${documentId}/${dataId}"
-}
-```
-
-Can be a string (single URL) or an array of strings (multiple URLs).
-
-These are different from `document.events` which are per-document and conditional. The namespace webhooks fire for ALL documents unconditionally.
-
-## RocketChat
-
-Integration with Rocket.Chat:
-
-```json
-{
-  "accessToken": "encrypted-token",
-  "livechat": {
-    "token": "livechat-widget-token",
-    "queue": { "_id": "queue-id" },
-    "campaign": { "_id": "campaign-id" },
-    "saveCampaignTarget": true
-  },
-  "alertWebhook": "https://rocketchat.example.com/hooks/..."
-}
-```
-
-## konfront
-
-Portal/storefront configuration for public-facing sites:
-
-```json
-{
-  "siteUser": { "_id": "...", "group": { "_id": "...", "name": "..." }, "name": "..." },
-  "saveOpportunity": true,
-  "opportunityStatus": "Nova",
-  "productSearch": true,
-  "setCampaign": true,
-  "useQueue": true,
-  "searchAnyProduct": true,
-  "userLabel": "Corretor",
-  "chooseAnotherLabel": "Escolher outro corretor"
-}
-```
+`onCreate`/`onUpdate`/`onDelete` fire for **every** document unconditionally (string
+or array of URL templates). For per-document conditional integrations use
+`document.events` instead ([document.md](document.md)).
 
 ## otpConfig
-
-OTP (One-Time Password) delivery configuration:
 
 ```json
 {
   "expirationMinutes": 5,
-  "whatsapp": {
-    "accessToken": "...",
-    "phoneNumberId": "...",
-    "templateId": "...",
-    "languageCode": "pt_BR"
-  },
+  "whatsapp": { "accessToken": "...", "phoneNumberId": "...", "templateId": "...", "languageCode": "pt_BR" },
   "emailTemplateId": "template-id",
   "emailFrom": "noreply@example.com"
-}
-```
-
-## Real-world example (acme)
-
-```json
-{
-  "_id": "Namespace",
-  "type": "namespace",
-  "ns": "acme",
-  "active": true,
-  "name": "Acme Inc.",
-  "shortName": "Acme",
-  "siteURL": "https://www.example.com/",
-  "dateFormat": "ccc LLL dd yyyy TTT",
-  "exportXlsLimit": 2500,
-  "sendAlertEmail": true,
-  "trackUserGeolocation": false,
-  "trackUserFingerprint": true,
-  "emailServers": {
-    "smtp_acme": {
-      "host": "email-smtp.us-east-1.amazonaws.com",
-      "port": 2587,
-      "auth": { "user": "...", "pass": "..." },
-      "secure": false
-    },
-    "default": {
-      "host": "email-smtp.us-east-1.amazonaws.com",
-      "port": 2587,
-      "auth": { "user": "...", "pass": "..." }
-    }
-  },
-  "storage": {
-    "type": "server",
-    "config": {
-      "upload": "https://blob.example.com",
-      "preview": "https://blob.example.com",
-      "headers": { "origin": "https://crm.example.com" }
-    }
-  },
-  "QueueConfig": {
-    "resources": {
-      "rabbitmq_default": {
-        "type": "rabbitmq",
-        "url": "amqp://crm:pass@rabbit-cluster:5672",
-        "queues": [
-          { "name": "acme-sync-postgres" },
-          { "name": "trigger-lead-flow" },
-          { "name": "marketplace-notification-queue" }
-        ]
-      }
-    },
-    "konsistent": ["rabbitmq_default", "konsistent"]
-  },
-  "plan": { "useExternalKonsistent": true },
-  "public": ["ns", "name", "shortName", "logoBig", "logoSmall", "konfront", "coldcall"]
 }
 ```

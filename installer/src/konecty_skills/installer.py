@@ -16,7 +16,9 @@ _BLOCK_BODY = """\
 <!-- konecty-skills:start -->
 ## Konecty Skills
 
-The `konecty-data` and `konecty-meta` skills are installed and available.
+The `konecty-data`, `konecty-meta`, `konecty-setup` and `konecty-dev` skills are
+installed and available. Data and metadata operations run through the Konecty MCP
+servers (`konecty` / `konecty-admin`); use `konecty-setup` to (re)configure them.
 <!-- konecty-skills:end -->"""
 
 

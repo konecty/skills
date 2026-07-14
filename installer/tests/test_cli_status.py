@@ -97,7 +97,10 @@ class TestCmdStatus(unittest.TestCase):
         self._seed_manifest()
 
         buf = io.StringIO()
-        with patch("sys.stdout", buf):
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
             rc = main(["status"])
 
         self.assertEqual(rc, 0)
@@ -114,7 +117,10 @@ class TestCmdStatus(unittest.TestCase):
         self._seed_manifest(extra_root=other_root)
 
         buf = io.StringIO()
-        with patch("sys.stdout", buf):
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
             rc = main(["status", "--all"])
 
         self.assertEqual(rc, 0)
@@ -152,7 +158,10 @@ class TestCmdStatus(unittest.TestCase):
         env_path.write_text("KONECTY_URL=https://h.example\n")
 
         buf = io.StringIO()
-        with patch("sys.stdout", buf):
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
             rc = main(["status"])
 
         self.assertEqual(rc, 0)
@@ -161,9 +170,45 @@ class TestCmdStatus(unittest.TestCase):
         self.assertIn("url=set", out)
         self.assertIn("token=missing", out)
 
+    # --- T20: MCP registration shown in status --------------------------------
+
+    def test_status_shows_mcp_registration(self) -> None:
+        """status lists registered konecty MCP servers when the CLI is present."""
+        self._seed_manifest()
+
+        buf = io.StringIO()
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=True),
+            patch("konecty_skills.mcp_config.list_servers", return_value=["konecty", "konecty-admin"]),
+            patch("sys.stdout", buf),
+        ):
+            rc = main(["status"])
+
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertIn("MCP     : konecty, konecty-admin", out)
+
+    def test_status_cli_absent_notes_it(self) -> None:
+        """status degrades gracefully when the claude CLI is missing."""
+        self._seed_manifest()
+
+        buf = io.StringIO()
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
+            rc = main(["status"])
+
+        self.assertEqual(rc, 0)
+        self.assertIn("MCP     : claude CLI not found", buf.getvalue())
+
+
+def _probe_ok_status(url: str, timeout: int = 10) -> dict:
+    return {"status": "ok", "resource": f"{url}/mcp", "detail": "well-known OK"}
+
 
 class TestCmdDoctor(unittest.TestCase):
-    """Tests for the doctor subcommand."""
+    """Tests for the doctor subcommand (MCP checks reworked in T19)."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.mkdtemp(prefix="ks_test_doctor_")
@@ -235,6 +280,9 @@ class TestCmdDoctor(unittest.TestCase):
         buf = io.StringIO()
         with (
             patch("konecty_skills.cli._probe_konecty", return_value=(True, "ok")),
+            patch("konecty_skills.mcp_config.probe_well_known", side_effect=_probe_ok_status),
+            patch("konecty_skills.mcp_config.cli_available", return_value=True),
+            patch("konecty_skills.mcp_config.list_servers", return_value=["konecty", "konecty-admin"]),
             patch("sys.stdout", buf),
         ):
             rc = main(["doctor"])
@@ -244,8 +292,8 @@ class TestCmdDoctor(unittest.TestCase):
         # Should report the modified conflict.
         self.assertIn("scripts/auth.py", out)
         self.assertIn("modified", out)
-        # Should confirm connection is OK.
-        self.assertIn("ok", out.lower())
+        # Should confirm the admin token check is OK.
+        self.assertIn("Admin token check: OK", out)
 
     def test_doctor_all_match(self) -> None:
         """doctor reports 'All files match' when hashes are correct."""
@@ -274,15 +322,156 @@ class TestCmdDoctor(unittest.TestCase):
             },
         }
         (self._konecty_home / "manifest.json").write_text(json.dumps(manifest_data))
-        # No credentials -> warn path.
+        # No credentials -> warn path (no URL configured).
         buf = io.StringIO()
-        with patch("sys.stdout", buf):
+        with (
+            patch("konecty_skills.mcp_config.cli_available", return_value=False),
+            patch("sys.stdout", buf),
+        ):
             rc = main(["doctor"])
 
         self.assertEqual(rc, 0)
         out = buf.getvalue()
         self.assertIn("All files match manifest", out)
-        self.assertIn("No credentials configured", out)
+        self.assertIn("No Konecty URL configured", out)
+
+    # --- T19: MCP checks, one remediation per failure mode -------------------
+
+    def _seed_min_manifest(self) -> None:
+        manifest_data = {
+            "schema": 1,
+            "installations": {
+                self._project_resolved: {
+                    "installed_at": "2024-01-01T00:00:00+00:00",
+                    "source": {"repo": "konecty/skills", "ref": "main", "commit": None},
+                    "scope": "project",
+                    "engines": ["claude"],
+                    "skills": {},
+                }
+            },
+        }
+        (self._konecty_home / "manifest.json").write_text(json.dumps(manifest_data))
+
+    def _write_env(self, token: bool = False) -> None:
+        content = "KONECTY_URL=https://h.example\n"
+        if token:
+            content += "KONECTY_TOKEN=tok123\n"
+        (self._konecty_home / ".env").write_text(content)
+
+    def _run_doctor(self, probe, servers=None, cli=True, konecty_probe=(True, "ok")):
+        buf = io.StringIO()
+        with (
+            patch("konecty_skills.cli._probe_konecty", return_value=konecty_probe),
+            patch("konecty_skills.mcp_config.probe_well_known", side_effect=probe),
+            patch("konecty_skills.mcp_config.cli_available", return_value=cli),
+            patch("konecty_skills.mcp_config.list_servers", return_value=servers or []),
+            patch("sys.stdout", buf),
+        ):
+            rc = main(["doctor"])
+        return rc, buf.getvalue()
+
+    def test_doctor_well_known_ok_and_servers_registered(self) -> None:
+        self._seed_min_manifest()
+        self._write_env()
+        rc, out = self._run_doctor(_probe_ok_status, servers=["konecty", "konecty-admin"])
+        self.assertEqual(rc, 0)
+        self.assertIn("MCP well-known endpoint: OK", out)
+        self.assertIn("MCP server 'konecty' registered", out)
+        self.assertIn("MCP server 'konecty-admin' registered", out)
+
+    def test_doctor_no_mcp_remediation(self) -> None:
+        self._seed_min_manifest()
+        self._write_env()
+
+        def probe(url, timeout=10):
+            return {"status": "no_mcp", "resource": None, "detail": "HTTP 404"}
+
+        rc, out = self._run_doctor(probe)
+        self.assertEqual(rc, 0)
+        self.assertIn("does not expose MCP", out)
+        self.assertIn("pin the last script-based release", out)
+
+    def test_doctor_audience_mismatch_remediation(self) -> None:
+        """Design Risk #1: doctor must flag the audience misconfiguration."""
+        self._seed_min_manifest()
+        self._write_env()
+
+        def probe(url, timeout=10):
+            return {"status": "mismatch", "resource": "https://other.example/mcp", "detail": "d"}
+
+        rc, out = self._run_doctor(probe)
+        self.assertEqual(rc, 0)
+        self.assertIn("Audience mismatch", out)
+        self.assertIn("PLATFORM_MCP_RESOURCE_URL", out)
+
+    def test_doctor_unreachable_remediation(self) -> None:
+        self._seed_min_manifest()
+        self._write_env()
+
+        def probe(url, timeout=10):
+            return {"status": "unreachable", "resource": None, "detail": "timed out"}
+
+        rc, out = self._run_doctor(probe)
+        self.assertEqual(rc, 0)
+        self.assertIn("unreachable", out)
+        self.assertIn("check the URL", out)
+
+    def test_doctor_missing_user_server_remediation(self) -> None:
+        self._seed_min_manifest()
+        self._write_env()
+        rc, out = self._run_doctor(_probe_ok_status, servers=["konecty-admin"])
+        self.assertEqual(rc, 0)
+        self.assertIn("MCP server 'konecty' not registered", out)
+        self.assertIn("konecty-setup", out)
+
+    def test_doctor_missing_admin_server_is_optional_note(self) -> None:
+        self._seed_min_manifest()
+        self._write_env()
+        rc, out = self._run_doctor(_probe_ok_status, servers=["konecty"])
+        self.assertEqual(rc, 0)
+        self.assertIn("MCP server 'konecty-admin' not registered", out)
+        self.assertIn("optional", out)
+
+    def test_doctor_cli_absent_warns(self) -> None:
+        self._seed_min_manifest()
+        self._write_env()
+        rc, out = self._run_doctor(_probe_ok_status, cli=False)
+        self.assertEqual(rc, 0)
+        self.assertIn("claude CLI not found", out)
+        self.assertIn("cannot verify MCP registration", out)
+
+    def test_doctor_stale_admin_token_remediation(self) -> None:
+        self._seed_min_manifest()
+        self._write_env(token=True)
+        rc, out = self._run_doctor(
+            _probe_ok_status,
+            servers=["konecty", "konecty-admin"],
+            konecty_probe=(False, "HTTP 401"),
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn("Admin token check failed", out)
+        self.assertIn("re-run the OTP login", out)
+        self.assertIn("konecty-admin", out)
+
+    def test_doctor_no_token_skips_admin_probe(self) -> None:
+        self._seed_min_manifest()
+        self._write_env(token=False)
+        with patch("konecty_skills.cli._probe_konecty") as mock_probe:
+            rc, out = self._run_doctor_no_konecty_patch(_probe_ok_status, mock_probe)
+        self.assertEqual(rc, 0)
+        mock_probe.assert_not_called()
+        self.assertNotIn("Admin token check", out)
+
+    def _run_doctor_no_konecty_patch(self, probe, _already_patched_probe):
+        buf = io.StringIO()
+        with (
+            patch("konecty_skills.mcp_config.probe_well_known", side_effect=probe),
+            patch("konecty_skills.mcp_config.cli_available", return_value=True),
+            patch("konecty_skills.mcp_config.list_servers", return_value=["konecty"]),
+            patch("sys.stdout", buf),
+        ):
+            rc = main(["doctor"])
+        return rc, buf.getvalue()
 
 
 class TestProbeKonectySchemeGuard(unittest.TestCase):

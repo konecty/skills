@@ -1,10 +1,11 @@
-"""Unit tests for cmd_configure in cli.py (T11).
+"""Unit tests for cmd_configure in cli.py (T11; reworked in T20 —
+configure is now the interim admin-token flow: OTP over HTTP + konecty-admin entry).
 
 Isolation:
 - KONECTY_HOME -> tmp directory (avoids ~/.konecty)
 - os.chdir -> tmp project directory
-- credentials.run_otp patched -> no real subprocess
-- ui.confirm patched where needed
+- credentials.otp_login / mcp_config.register patched -> no network, no claude CLI
+- ui.confirm / ui.ask patched where needed
 """
 from __future__ import annotations
 
@@ -107,6 +108,47 @@ class TestCmdConfigure(unittest.TestCase):
         env_text = env_path.read_text()
         self.assertIn("KONECTY_URL=https://new.example", env_text)
         self.assertNotIn("https://old.example", env_text)
+
+    # --- T20: interactive admin OTP path --------------------------------------
+
+    def test_configure_interactive_otp_registers_admin_server(self) -> None:
+        """OTP success writes url+token and registers konecty-admin (Bearer header)."""
+        from konecty_skills import mcp_config
+
+        register_return = {"executed": True, "ok": True, "detail": "added"}
+        with (
+            patch("konecty_skills.ui.confirm", return_value=True),
+            patch("konecty_skills.ui.ask", return_value="admin@h.example"),
+            patch("konecty_skills.credentials.otp_login", return_value="tok-adm") as mock_otp,
+            patch("konecty_skills.mcp_config.register", return_value=register_return) as mock_reg,
+        ):
+            rc = main(["configure", "--url", "https://h.example"])
+
+        self.assertEqual(rc, 0)
+        mock_otp.assert_called_once_with("https://h.example", "admin@h.example")
+        mock_reg.assert_called_once_with(
+            "konecty-admin",
+            mcp_config.build_add_admin_token("https://h.example", "tok-adm"),
+        )
+        env_text = (self._konecty_home / ".env").read_text()
+        self.assertIn("KONECTY_URL=https://h.example", env_text)
+        self.assertIn("KONECTY_TOKEN=tok-adm", env_text)
+
+    def test_configure_interactive_otp_failure_writes_url_only(self) -> None:
+        """OTP failure falls back to URL-only .env; no MCP registration."""
+        with (
+            patch("konecty_skills.ui.confirm", return_value=True),
+            patch("konecty_skills.ui.ask", return_value="admin@h.example"),
+            patch("konecty_skills.credentials.otp_login", return_value=None),
+            patch("konecty_skills.mcp_config.register") as mock_reg,
+        ):
+            rc = main(["configure", "--url", "https://h.example"])
+
+        self.assertEqual(rc, 0)
+        mock_reg.assert_not_called()
+        env_text = (self._konecty_home / ".env").read_text()
+        self.assertIn("KONECTY_URL=https://h.example", env_text)
+        self.assertNotIn("KONECTY_TOKEN", env_text)
 
 
 if __name__ == "__main__":

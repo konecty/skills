@@ -40,6 +40,9 @@ skills/konecty-session/.env
 *.local.md
 .specs/**/SOURCES.local.md
 
+# e2e Konecty source worktree (created via `make e2e-src` — never commit)
+e2e/.konecty-src/
+
 # codebase-intelligence audit output
 .codebase-audit/
 

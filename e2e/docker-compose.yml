@@ -1,14 +1,15 @@
 name: konecty-skills-e2e
 
-# Isolated, disposable Konecty stack for the skills end-to-end harness.
-# Mirrors the company-brain reference (mongo replica set + mongodb-init +
-# rabbitmq + the konecty/konecty image) but runs on ALTERNATE ports so it can
-# coexist with a dev Konecty already bound to :3000. `docker compose down -v`
-# drops the volumes so every round starts from a clean database (and a fresh
-# admin password in the konecty logs).
+# Isolated, disposable Konecty stack for the MCP-first skills e2e harness.
+# The Konecty image is BUILT FROM SOURCE out of the local git worktree at
+# e2e/.konecty-src (branch feat/oauth-admin-scope-trusted-clients — the
+# admin-OAuth feature, konecty/Konecty#453). `make e2e-src` creates/refreshes
+# the worktree and builds dist/ (the repo's Dockerfile copies a prebuilt dist).
 #
-#   docker compose -f e2e/docker-compose.yml up -d
-#   docker compose -f e2e/docker-compose.yml down -v   # clean reset
+#   make e2e-up      # build + boot + wait + MCP namespace bootstrap
+#   make e2e-reset   # down -v (clean DB + fresh admin password next boot)
+#
+# Runs on ALTERNATE ports (:3200) so it can coexist with a dev Konecty on :3000.
 
 services:
   mongodb:
@@ -65,7 +66,12 @@ services:
     networks: [e2e-network]
 
   konecty:
-    image: konecty/konecty:${KONECTY_IMAGE_TAG:-3.8.10}
+    build:
+      # Local Konecty worktree (feat/oauth-admin-scope-trusted-clients) with a
+      # prebuilt dist/ — see `make e2e-src`. Uses the repo's own Dockerfile.
+      context: .konecty-src
+      dockerfile: Dockerfile
+    image: konecty-e2e-local:mcp-first
     container_name: konecty-e2e-konecty
     restart: unless-stopped
     depends_on:
@@ -77,23 +83,62 @@ services:
       - PORT=3000
       - KONECTY_MODE=development
       # NODE_ENV=production makes the built image resolve metadata at
-      # /app/private/metadata (the 21 shipped seed docs); dev mode looks for a
+      # /app/private/metadata (the shipped seed docs); dev mode looks for a
       # src/ path that doesn't exist in the compiled image.
       - NODE_ENV=production
       - COOKIES_SECRET=${E2E_COOKIES_SECRET:-e2e-cookies-secret-not-for-production}
       - KONMETA_NAMESPACE=${E2E_NAMESPACE:-e2e}
       - MONGO_URL=mongodb://mongodb:27017/${E2E_NAMESPACE:-e2e}?directConnection=true
+      # ── Public URLs (host perspective) — issuer and audience MUST be
+      #    consistent: PLATFORM_MCP_RESOURCE_URL is what /mcp validates OAuth
+      #    token audiences against and what the well-known endpoint announces.
+      - KONECTY_URL=${E2E_PUBLIC_URL:-http://localhost:3200}
+      - OAUTH_ISSUER_URL=${E2E_PUBLIC_URL:-http://localhost:3200}
+      - PLATFORM_MCP_RESOURCE_URL=${E2E_PUBLIC_URL:-http://localhost:3200}/mcp
+      - HUB_MCP_RESOURCE_URL=${E2E_PUBLIC_URL:-http://localhost:3200}/mcp
+      # ── OAuth clients seed. REPLACES the default seeded clients entirely
+      #    (docs/en/mcp.md caveat). Two clients:
+      #    * e2e-user  — normal (untrusted) client: read/write only, mirrors a
+      #      DCR-registered client but with a stable id for the suites.
+      #    * e2e-admin — trusted first-party client allowed to request `admin`
+      #      (ADR-0011 recipe). Fixed localhost callback; redirect URIs are
+      #      matched exactly and no listener is needed: the consent decision
+      #      API returns the redirect URL as JSON.
+      - >-
+        OAUTH_CLIENTS_JSON=[
+        {"clientId":"e2e-user","name":"E2E User Client",
+        "redirectUris":["http://localhost:19818/callback"],
+        "allowedScopes":["read","write"],
+        "allowedAudiences":["${E2E_PUBLIC_URL:-http://localhost:3200}/mcp"],
+        "publicClient":true},
+        {"clientId":"e2e-admin","name":"E2E Trusted Admin Client",
+        "redirectUris":["http://localhost:19819/callback"],
+        "allowedScopes":["read","write","admin"],
+        "allowedAudiences":["${E2E_PUBLIC_URL:-http://localhost:3200}/mcp"],
+        "publicClient":true,"trustedFirstParty":true}
+        ]
       - DISABLE_REINDEX=true
       - DISABLE_TELEMETRY_LOGS=true
       - DISABLE_SENDMAIL=true
       - OTP_EMAIL_ENABLED=true
       - DEFAULT_LOCALE=pt_BR
       - LOG_LEVEL=info
-      - ALLOWED_ORIGINS=http://localhost:3000|http://localhost:5173
+      - ALLOWED_ORIGINS=http://localhost:3200|http://localhost:5173
+      # The session_* MCP tools proxy to /api/auth/* via fastify.inject with no
+      # headers; the default strict-CORS zone (/api/|/rest/auth/) rejects those
+      # header-less internal requests ("Origin header required") — an upstream
+      # Konecty gap. Narrow the strict zone so the documented OTP flow is
+      # testable here.
+      - CORS_STRICT_PREFIXES=/rest/auth/
+      # The OAuth suite scripts several authorize→consent→decision flows in
+      # seconds; the default 10/min per-IP bucket on the authorize routes
+      # would 429 them.
+      - OAUTH_RATE_LIMIT_AUTHORIZE_MAX=1000
+      - OAUTH_RATE_LIMIT_TOKEN_MAX=1000
       - UI_PROXY=false
       - BODY_LIMIT=10485760
     ports:
-      - "${E2E_KONECTY_PORT:-3100}:3000"
+      - "${E2E_KONECTY_PORT:-3200}:3000"
     healthcheck:
       # the konecty image ships wget (no curl); 127.0.0.1 avoids IPv6 ::1
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/liveness"]

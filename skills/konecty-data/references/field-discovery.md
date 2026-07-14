@@ -1,84 +1,92 @@
-# Field Discovery — Konecty Modules
+# Field Discovery — modules, fields, and valid filter values
 
-Lists accessible Konecty modules and their fields/types for the current session.
+Discover which modules exist, their fields/types, and the valid values to filter or
+write with — all through the `konecty` MCP server.
 
-## Prerequisites
+## Discovery sequence
 
-Requires credentials from **konecty-session**: `KONECTY_URL` and `KONECTY_TOKEN` in `~/.konecty/.env`.
-If not present or expired, ask the user to run the auth flow first (see [auth.md](auth.md)).
+```
+modules_list → modules_fields → field_picklist_options / field_lookup_search → filter_build
+```
 
-## API
+### 1. `modules_list`
 
-All requests require `Authorization: <KONECTY_TOKEN>` header.
+Input: none (auth via header). Output: `modules`, `usageHint`, `queryStrategyHint`,
+`moduleIdentifiers`.
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /rest/query/explorer/modules?lang=pt_BR` | All modules accessible to the current user, with fields and types |
+Use it to resolve the user's term ("contatos", "oportunidades") to the technical
+`document` identifier (`Contact`, `Opportunity`). **Never use a module label/display
+name as the document identifier — always the technical `document`.** If the user's
+term is ambiguous, list the closest candidates and ask.
 
-**Module object** (`lang` controls field/module labels):
+### 2. `modules_fields`
+
+Input: `document`. Output: `module` (including document normalization info when
+applicable) and `controlFields` (system field metadata with type, filterPath, and
+validOperators).
+
+For each field note: **name** (payload/filter key), **type** (determines value
+format and valid operators), and for special types:
+
+- **picklist** fields have embedded options → confirm keys with `field_picklist_options`.
+- **lookup** fields point at a related module → resolve `_id`s with `field_lookup_search`.
+
+### 3a. `field_picklist_options`
+
+Input: `document`, `fieldName`. Output: `document`, `fieldName`, `fieldLabel`,
+`options` (array of `{ key, sort?, pt_BR?, en? }`).
+
+Returns the **valid option keys** for a picklist. Use before filtering or writing —
+keys are case-sensitive and must match exactly (labels shown to the user may differ
+from the stored key).
+
+### 3b. `field_lookup_search`
+
+Input: `document`, `fieldName`, `search`, optional `limit`. Output: `document`,
+`fieldName`, `relatedDocument`, `descriptionFields`, `records`, `total`.
+
+Searches related records to resolve a lookup `_id` before filtering
+(`term: "contact._id"`) or writing (`{ "_id": "..." }`).
+
+### 4. `filter_build`
+
+Feed what you learned into `filter_build` — pass each condition's `fieldType` from
+`modules_fields` so operator compatibility is validated. See
+[find.md](find.md) for the full filter format.
+
+## Control / system fields
+
+Every module has system-managed control fields (prefixed `_`), present in all records
+and usable in filters and sorts. `modules_fields` returns this metadata in
+`controlFields`.
+
+| Field | Type | Filter path | Valid operators | Value format |
+|-------|------|-------------|-----------------|--------------|
+| `_id` | ObjectId | `_id` | equals, not_equals, in, not_in, exists | String |
+| `_createdAt` | dateTime | `_createdAt` | equals, not_equals, greater_than, less_than, greater_or_equals, less_or_equals, between, exists | ISO 8601 (`"2026-03-18T00:00:00Z"`) |
+| `_updatedAt` | dateTime | `_updatedAt` | (same as `_createdAt`) | ISO 8601 |
+| `_user` | lookup (User[]) | `_user._id` | equals, not_equals, in, not_in, exists | User `_id` string. Also supports `current_user` operator (no value) |
+| `_createdBy` | lookup (User) | `_createdBy._id` | equals, not_equals, in, not_in, exists | User `_id` string |
+| `_updatedBy` | lookup (User) | `_updatedBy._id` | equals, not_equals, in, not_in, exists | User `_id` string |
+
+**Dates**: date/dateTime values MUST always be ISO 8601 with timezone
+(`"2026-01-01T00:00:00Z"`). `"2026-01-01"` or `"01/01/2026"` are not accepted.
+
+## Operators by field type
+
+| Field type | Operators |
+|------------|-----------|
+| picklist | `exists`, `equals`, `not_equals`, `in`, `not_in` |
+| lookup | `exists` |
+| lookup._id | `exists`, `equals`, `not_equals`, `in`, `not_in` |
+| text, url, email.address | `exists`, `equals`, `not_equals`, `in`, `not_in`, `contains`, `not_contains`, `starts_with`, `end_with` |
+| number, date, dateTime | `exists`, `equals`, `not_equals`, `in`, `not_in`, `greater_than`, `less_than`, `greater_or_equals`, `less_or_equals`, `between` |
+| boolean | `exists`, `equals`, `not_equals` |
+
+### Lookup filter example
+
 ```json
-{
-  "document": "Contact",
-  "label": "Contato",
-  "fields": [
-    { "name": "name", "type": "text", "label": "Nome" },
-    { "name": "status", "type": "picklist", "label": "Status", "options": { "active": "Ativo" } },
-    { "name": "queue", "type": "lookup", "label": "Fila", "document": "Queue", "descriptionFields": ["name"] }
-  ],
-  "reverseLookups": [
-    { "document": "Activity", "lookup": "contact", "label": "Atividade" }
-  ]
-}
+{ "match": "and", "conditions": [{ "term": "supplier._id", "operator": "equals", "value": "<contact_id>" }] }
 ```
 
-**Field types:** `text`, `number`, `boolean`, `date`, `dateTime`, `lookup`, `inheritLookup`, `picklist`, `address`, `file`, `url`, `email`, `phone`, `money`, `percentage`, `richText`, `autoNumber`, `filter`.
-
-## Workflow
-
-### 1. Load credentials
-
-```bash
-source ~/.konecty/.env  # exports KONECTY_URL and KONECTY_TOKEN
-```
-
-Or use the script (auto-loads from `~/.konecty/.env`).
-
-### 2. List modules
-
-```bash
-python3 scripts/modules.py list
-python3 scripts/modules.py list --lang en
-```
-
-Output: table of `document` (internal name), `label`, field count.
-
-### 3. Find a module and show its fields
-
-```bash
-python3 scripts/modules.py fields "contato"
-python3 scripts/modules.py fields "Contact"
-python3 scripts/modules.py fields "oport"   # fuzzy match
-```
-
-Matching priority: exact `document` name → exact `label` → fuzzy (difflib SequenceMatcher on document + label). Prints all fields with name, type, and label.
-
-### 4. Search modules by keyword
-
-```bash
-python3 scripts/modules.py search "atividade"
-```
-
-Filters modules whose `document` or `label` contains the keyword (case-insensitive).
-
-## Fuzzy matching for agents
-
-When the user refers to a module by an approximate name or in Portuguese, use `python3 scripts/modules.py fields "<user term>"` — the script ranks by similarity and picks the best match. If no confident match, it prints the top candidates so you can ask the user to confirm.
-
-## Script reference
-
-See [scripts/modules.py](../scripts/modules.py). Stdlib only (`urllib`, `json`, `difflib`, `configparser`).
-
-All subcommands accept:
-- `--host` — overrides `KONECTY_URL`
-- `--token` — overrides `KONECTY_TOKEN`
-- `--lang` — language for labels (default: `pt_BR`)
+Resolve `<contact_id>` first with `field_lookup_search`.

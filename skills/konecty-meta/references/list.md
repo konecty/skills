@@ -1,53 +1,42 @@
-# Konecty Meta List
+# Meta List — columns, filters, sorters
 
-Manage list-type metadata definitions (columns, filters, sorters, pagination, calendars, boards).
+Manage list metas with `meta_list_upsert` on the `konecty-admin` MCP server.
 
-## Prerequisites
+## Tool
 
-Requires **admin** credentials from **konecty-session**. User must have `admin: true`.
+`meta_list_upsert` — input: `id` (`{Document}:list:{Name}`, e.g.
+`Activity:list:Default`), `list` (the **complete** list meta). Output: `result`.
 
-## Workflow
+**Full-replace semantics**: the payload replaces the stored meta entirely. Start
+from the current definition (metadata repo, previous read, or user-provided — see
+[read.md](read.md)), apply the change, send the whole object.
 
-### 1. Show a list definition
+## Structure essentials
 
-```bash
-python3 scripts/meta_list.py show Activity Default
-python3 scripts/meta_list.py show Contact SavedFilter
+- `_id` = the same value as `id`; `type: "list"`; `document` = parent document;
+  `name` = list name; bilingual `label`/`plurals`.
+- `columns` is an **object-map** `{ "columnName": { ... } }`, not an array:
+
+```json
+"columns": {
+  "code":   { "name": "code", "linkField": "code", "visible": true, "minWidth": 60, "sort": 0 },
+  "status": { "name": "status", "linkField": "status", "visible": true, "minWidth": 100, "sort": 1 }
+}
 ```
 
-### 2. List columns
+- `linkField` maps the column to a field in the parent document — the field must
+  exist there (check via `meta_read` of the document).
+- `sorters`: default sort, `[{ "term": "code", "direction": "desc" }]`.
+- `filter`: KonFilter; list filters may use an object-map of conditions with UI
+  extras (`editable`, `style`, `sort`).
+- `refreshRate` / `rowsPerPage`: `{ "options": [...], "default": N }`.
+- Optional: `view` (form opened on click), `loadDataAtOpen`, `calendars`, `boards`.
 
-```bash
-python3 scripts/meta_list.py columns Activity Default
-```
+## Typical edits
 
-### 3. Add a column
+- **Add a column**: add an entry to `columns` with `name`, `linkField`, `visible`,
+  `sort` (display order), optional `minWidth`/`style`.
+- **Remove a column**: delete the entry.
+- **Change default filter/sort**: edit `filter` / `sorters`.
 
-```bash
-python3 scripts/meta_list.py add-column Activity Default myField --visible --sort 10 --min-width 120
-```
-
-### 4. Remove a column
-
-```bash
-python3 scripts/meta_list.py remove-column Activity Default myField
-```
-
-### 5. Upsert full list
-
-```bash
-python3 scripts/meta_list.py upsert Activity Default --file list.json
-```
-
-## Key concepts
-
-- `_id` pattern: `{Document}:list:{Name}`
-- `columns` is an **object-map** `{ "columnName": { ... } }`, not an array
-- `linkField` maps a column to a field in the parent document
-- `filter` uses KonFilter syntax with editable conditions
-- `sorters` defines default sort order
-- `calendars` and `boards` are optional view mode configurations
-
-## Script reference
-
-See [scripts/meta_list.py](scripts/meta_list.py). Stdlib only.
+Full schema table: [read.md](read.md#list).

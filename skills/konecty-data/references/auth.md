@@ -1,91 +1,51 @@
-# Konecty Session — Reference (OTP flow)
+# Authentication — user MCP
 
-## Prerequisite: OTP enabled in namespace
+Both MCP endpoints are **stateless**: the server keeps no MCP conversation auth
+session. The token travels with every protected call.
 
-Login via this skill is only possible when the Konecty namespace has OTP configured (email and/or WhatsApp). If the namespace does not have OTP enabled, the session flow cannot be used. Check **login-options** first.
+## Default path — OAuth (Claude Code)
 
-## APIs (OTP flow)
+When the `konecty` MCP server was registered normally (see **konecty-setup**),
+Claude Code handles the OAuth flow natively: browser login + consent on first use,
+token refresh afterwards. The access token is sent as an `Authorization: Bearer`
+header on every call and resolved server-side.
 
-Base URL: `{KONECTY_URL}` (no trailing slash). All request/verify bodies are JSON, `Content-Type: application/json`.
+**Consequence:** call every authenticated tool **without** an `authTokenId`
+argument. There is nothing to store or manage. Granted scopes are `read` (and
+`write` when the namespace enables `mcpUserWriteEnabled`).
 
-### GET /api/auth/login-options
+If calls start failing with `401` / `UNAUTHORIZED`, Claude Code's re-authentication
+(new browser login) is the fix — guide the user via **konecty-setup** ("fix auth").
 
-Returns which login methods are enabled for the current namespace.
+## Fallback path — OTP via `session_*` tools
 
-**Response:** `{ passwordEnabled: boolean, emailOtpEnabled: boolean, whatsAppOtpEnabled: boolean }`
+Use only when OAuth is not available for this deployment. The flow (all on the
+`konecty` server):
 
-- If neither `emailOtpEnabled` nor `whatsAppOtpEnabled` is true, the konecty-session skill cannot obtain a token (OTP login not available).
+1. `session_login_options` — inspect which OTP methods are enabled
+   (output: `options`, `nextSteps`, request/verify examples).
+2. Request the code on the chosen channel:
+   - `session_request_otp_email` — input `email`.
+   - `session_request_otp_phone` — input `phoneNumber` in **E.164**
+     (e.g. `+5511999999999`). If the user gives only Brazilian DDD + local number,
+     prepend `+55`. Use the same normalized number to request and verify.
+3. Ask the user for the received code, then verify with the matching tool:
+   - `session_verify_otp_email` / `session_verify_otp_phone` — input the channel
+     identifier plus `otpCode`. Output: `authId`, `user`, `logged`, `instructions`.
+4. Keep `authId` in the conversation and send it as the `authTokenId` argument on
+   **every** authenticated tool call from then on. Never store or echo the OTP code.
 
-### POST /api/auth/request-otp
+`session_logout` (input `authTokenId`) ends the session.
 
-Sends a one-time code to the user's email or phone. Exactly one of `email` or `phoneNumber` must be provided.
+### Error recovery (OTP path)
 
-**Body:**
-- `{ "email": "user@example.com" }` or
-- `{ "phoneNumber": "+5511999999999" }` (E.164 format)
+When an authenticated tool returns `UNAUTHORIZED`:
 
-**Response:** `{ success: true, message: "OTP sent via ..." }` or `{ success: false, errors: [...] }`
+1. Re-run the OTP flow until a verify tool returns a fresh `authId`.
+2. Retry the same tool including the new `authTokenId`.
+3. If it still fails, request a new OTP and replace the stored token.
 
-After success, the user receives the 6-digit code by email or WhatsApp. The agent should then ask the user to provide the code.
+## Admin note
 
-### POST /api/auth/verify-otp
-
-Verifies the OTP code and returns the session token. Same identifier (email or phone) as in request-otp, plus the 6-digit code.
-
-**Body:**
-- `{ "email": "user@example.com", "otpCode": "123456" }` or
-- `{ "phoneNumber": "+5511999999999", "otpCode": "123456" }`
-
-**Response (success):** `{ success: true, logged: true, authId: "<token>", user: { _id, ... } }`
-
-- `authId` is the session token to store as `KONECTY_TOKEN`.
-- Use `user._id` optionally as `KONECTY_USER_ID`.
-
-After a successful verify-otp, persist `authId` (and optionally `user._id`) to **~/.konecty/.env** and **~/.konecty/credentials** (shared location so all skills can use the same token). Do not store the OTP code.
-
-## Token validity
-
-The session token (`authId`) is valid for a period defined by the namespace (e.g. `sessionExpirationInSeconds`). After expiration, API calls using that token will fail (e.g. 401). Other skills should treat invalid/expired token by asking the user to run the konecty-session flow again (request OTP → receive code → verify OTP → persist new token).
-
-## Environment variables (for other skills)
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `KONECTY_URL` | Yes | Konecty base URL, no trailing slash |
-| `KONECTY_TOKEN` | Yes | Session token (`authId`) from verify-otp |
-| `KONECTY_USER_ID` | No | Logged-in user `_id` |
-
-## Shared credential location (all skills)
-
-Token and URL are written to **~/.konecty/** so any skill can use them:
-
-- **~/.konecty/.env** — `KONECTY_URL=...`, `KONECTY_TOKEN=...`, `KONECTY_USER_ID=...` (load with `source ~/.konecty/.env` or your language's env loader).
-- **~/.konecty/credentials** — ini format for Node `@konecty/sdk` and CLI:
-
-```ini
-[default]
-host = https://app.konecty.com
-userId = <user _id>
-authId = <session token>
-```
-
-`authId` is the value of `KONECTY_TOKEN`.
-
-## Script usage
-
-```bash
-# Check which OTP methods are enabled
-python3 scripts/auth.py login-options --host <url>
-
-# Step 1: Request OTP
-python3 scripts/auth.py request-otp --host <url> --email user@example.com
-# or
-python3 scripts/auth.py request-otp --host <url> --phone +5511999999999
-
-# Step 2: Verify OTP and persist credentials
-python3 scripts/auth.py verify-otp --host <url> --email user@example.com --otp 123456
-# or
-python3 scripts/auth.py verify-otp --host <url> --phone +5511999999999 --otp 123456
-```
-
-The script writes `~/.konecty/.env` and `~/.konecty/credentials`. It does **not** store the OTP code, only the resulting token.
+Metadata operations authenticate differently (admin MCP, `konecty-admin` server) —
+that is **konecty-meta** territory, not this skill.

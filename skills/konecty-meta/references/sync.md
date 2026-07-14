@@ -1,11 +1,9 @@
-# Konecty Meta Sync
+# Meta Sync — repo ↔ database
 
-Synchronize metadata between a filesystem repository and the Konecty database.
+Synchronize metadata between a filesystem repository and the Konecty database using
+`meta_sync_plan` → `meta_sync_apply` on the `konecty-admin` MCP server.
 
-## Prerequisites
-
-Requires **admin** credentials from **konecty-session**. User must have `admin: true`.
-Requires a metadata repository with the standard structure:
+## Repository layout (source of truth)
 
 ```
 MetaObjects/
@@ -14,7 +12,6 @@ MetaObjects/
     list/Default.json
     view/Default.json
     access/Default.json
-    access/Corretor.json
     pivot/Default.json
     hook/scriptBeforeValidation.js
     hook/validationData.json
@@ -24,67 +21,40 @@ MetaObjects/
     document.json
 ```
 
-## Workflow
+To build sync `items` from a repo: each meta becomes one object with its `_id`
+(`Contact`, `Contact:list:Default`, …) and full content; hook files under `hook/`
+are injected into the document meta as the corresponding fields
+(`scriptBeforeValidation`, `validationData`, …). Validate hook code with
+`meta_hook_validate` **before** including it in a sync ([hook.md](hook.md)).
 
-### 1. Plan (preview changes — ALWAYS run first)
+## 1. `meta_sync_plan` — always first
 
-```bash
-python3 scripts/meta_sync.py plan --from repo --to prod --repo /path/to/metas
-python3 scripts/meta_sync.py plan --from prod --to repo --repo /path/to/metas
-```
+Input: `items` — array of metadata objects, each with a non-empty string `_id`
+(extra keys carried as-is). Output: `plan`.
 
-Shows a diff of changes that would be applied. No changes are made.
+The plan compares incoming items with the database and marks each as **create**
+(no meta with that `_id` exists) or **update**. Show the plan to the user —
+creates vs updates, and which `_id`s — and get explicit approval.
 
-### 2. Apply (execute changes with confirmation)
+## 2. `meta_sync_apply` — only after the plan is approved
 
-```bash
-python3 scripts/meta_sync.py apply --from repo --to prod --repo /path/to/metas
-```
+Input: `items` (the same reviewed items), `autoApprove`. Output: `applied`, `total`.
 
-Interactive confirmation: shows each change and asks for approval.
+- The tool **refuses to apply** unless `autoApprove` is `true` — that flag is your
+  statement that the user approved the reviewed plan. Never set it without showing
+  the plan first.
+- Each item **fully replaces** the stored meta with the same `_id` (upsert). Items
+  must be complete definitions, never partials.
 
-```bash
-python3 scripts/meta_sync.py apply --from repo --to prod --repo /path/to/metas --auto-approve
-```
+## 3. Verify
 
-Non-interactive: applies all changes (for CI/CD).
+- `meta_doctor_run` after applying ([doctor.md](doctor.md)).
+- Spot-check critical documents with `meta_read`.
 
-```bash
-python3 scripts/meta_sync.py apply --from repo --to prod --repo /path/to/metas --only Contact Contact:list:Default
-```
+## Safety notes
 
-Selective: applies only the specified metas.
-
-Before each document/composite write, hooks are prevalidated using backend `POST /api/admin/meta/hook/validate`. Invalid hooks are skipped and reported.
-
-### 3. Diff (single item comparison)
-
-```bash
-python3 scripts/meta_sync.py diff --repo /path/to/metas --meta-id Contact
-python3 scripts/meta_sync.py diff --repo /path/to/metas --meta-id "Contact:list:Default"
-```
-
-### 4. Pull (fetch from prod to repo)
-
-```bash
-python3 scripts/meta_sync.py pull --repo /path/to/metas --document Contact
-python3 scripts/meta_sync.py pull --repo /path/to/metas --all
-```
-
-## Direction model
-
-- `--from repo --to prod`: Repository is source of truth, push to database
-- `--from prod --to repo`: Database is source of truth, pull to repository
-
-## Key concepts
-
-- Hooks (.js/.json files) in `hook/` subdirectory are injected into the document meta
-- Hook payloads are prevalidated against backend rules before apply
-- Namespace is synced as `MetaObjects/Namespace/document.json`
-- The `--only` flag allows selective application from a plan
-- The `--auto-approve` flag skips interactive confirmation (for CI/CD)
-- After applying changes, a reload (`POST /api/admin/meta/reload`) is triggered automatically
-
-## Script reference
-
-See [scripts/meta_sync.py](scripts/meta_sync.py). Stdlib only.
+- Sync in the **repo → database** direction only when the repo is the agreed source
+  of truth; warn the user that database-side edits not present in the repo will be
+  overwritten for the synced `_id`s.
+- For large syncs, prefer applying in reviewed batches (subset of `items`) so a bad
+  definition doesn't ride in with a hundred good ones.
