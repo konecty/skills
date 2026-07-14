@@ -18,9 +18,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import __version__
+
 USER_SERVER = "konecty"
 ADMIN_SERVER = "konecty-admin"
 WELL_KNOWN_PATH = "/.well-known/oauth-protected-resource"
+
+# WAFs commonly block the default "Python-urllib/x.y" agent with 403 (seen live
+# on customer deployments) — every HTTP call identifies itself as the CLI.
+USER_AGENT = f"konecty-skills/{__version__}"
 
 
 class UrlValidationError(ValueError):
@@ -62,7 +68,7 @@ def probe_well_known(url: str, timeout: int = 10) -> dict:
     Never raises.
     """
     probe_url = f"{url}{WELL_KNOWN_PATH}"
-    req = urllib.request.Request(probe_url)
+    req = urllib.request.Request(probe_url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310  # nosec B310 - https enforced by normalize_url
             body = resp.read()
@@ -83,17 +89,48 @@ def probe_well_known(url: str, timeout: int = 10) -> dict:
         return {"status": "bad_json", "resource": None, "detail": f"Invalid JSON body: {exc}"}
 
     resource = data.get("resource") if isinstance(data, dict) else None
+    issuer, issuer_warning = _check_issuer(data, url)
     expected = f"{url}/mcp"
     if resource == expected:
-        return {"status": "ok", "resource": resource, "detail": "well-known OK"}
+        return {
+            "status": "ok",
+            "resource": resource,
+            "issuer": issuer,
+            "issuer_warning": issuer_warning,
+            "detail": "well-known OK",
+        }
     return {
         "status": "mismatch",
         "resource": resource,
+        "issuer": issuer,
+        "issuer_warning": issuer_warning,
         "detail": (
             f"well-known resource is {resource!r} but the MCP URL is {expected!r} — "
             "audience misconfiguration (PLATFORM_MCP_RESOURCE_URL)."
         ),
     }
+
+
+def _check_issuer(data: object, url: str) -> tuple[str | None, str | None]:
+    """Validate ``authorization_servers[0]`` against the company URL.
+
+    Returns ``(issuer, warning)``. The OAuth login happens against the issuer,
+    so a bad value (the server's ``http://localhost:3000`` fallback when
+    ``KONECTY_URL``/``OAUTH_ISSUER_URL`` is unset) breaks discovery even when
+    the resource is right.
+    """
+    servers = data.get("authorization_servers") if isinstance(data, dict) else None
+    issuer = servers[0] if isinstance(servers, list) and servers else None
+    if issuer is None:
+        return None, "well-known lists no authorization_servers — OAuth discovery will fail."
+    issuer_host = urllib.parse.urlparse(issuer).hostname or ""
+    url_host = urllib.parse.urlparse(url).hostname or ""
+    if issuer_host in ("localhost", "127.0.0.1") or issuer_host != url_host:
+        return issuer, (
+            f"OAuth issuer is {issuer!r} (expected host {url_host!r}) — the deployment "
+            "is missing KONECTY_URL/OAUTH_ISSUER_URL; browser login will fail until it is set."
+        )
+    return issuer, None
 
 
 # --- command builders (must mirror skills/konecty-setup/SKILL.md) ------------

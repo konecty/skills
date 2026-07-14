@@ -109,6 +109,8 @@ def cmd_install(args: argparse.Namespace) -> int:
             return 1
         if probe["status"] in ("mismatch", "bad_json"):
             ui.warn(probe["detail"])
+        if probe.get("issuer_warning"):
+            ui.warn(probe["issuer_warning"])
 
         # 5. Register the user MCP server (replace, never duplicate).
         result = mcp_config.register(
@@ -209,6 +211,8 @@ def _probe_konecty(url: str, token: str) -> tuple[bool, str]:
     import urllib.request
     import urllib.error
 
+    from . import mcp_config
+
     probe_url = f"{url.rstrip('/')}/api/auth/login-options"
 
     # B310: guard scheme before calling urlopen.
@@ -219,7 +223,10 @@ def _probe_konecty(url: str, token: str) -> tuple[bool, str]:
     try:
         req = urllib.request.Request(
             probe_url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "User-Agent": mcp_config.USER_AGENT,
+            },
         )
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310  # nosec B310 - scheme guarded above
             return True, f"HTTP {resp.status}"
@@ -373,6 +380,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 f"Konecty URL unreachable: {probe['detail']} — "
                 "check the URL (and VPN, if applicable)."
             )
+        if probe.get("issuer_warning"):
+            ui.warn(f"OAuth issuer problem: {probe['issuer_warning']}")
 
     # --- Check 2: MCP servers registered in Claude Code (MCPF-22) -------------
     if mcp_config.cli_available():

@@ -31,7 +31,9 @@ def _download(url: str, token: str | None = None) -> bytes:
     if scheme != "https":
         raise FetchError(f"Unsupported URL scheme {scheme!r}; only https is allowed.")
 
-    headers: dict[str, str] = {}
+    from .mcp_config import USER_AGENT
+
+    headers: dict[str, str] = {"User-Agent": USER_AGENT}
     if token:
         headers["Authorization"] = f"Bearer {token}"
         headers["Accept"] = "application/vnd.github+json"
