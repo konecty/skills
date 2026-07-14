@@ -117,6 +117,10 @@ def cmd_install(args: argparse.Namespace) -> int:
             mcp_config.USER_SERVER, mcp_config.build_add_user(mcp_url)
         )
         mcp_status = _report_registration(result, mcp_config.USER_SERVER)
+        ui.step(
+            "OAuth login happens on FIRST USE, not now: open `claude`, run /mcp, "
+            "pick 'konecty' and Authenticate — the browser will open."
+        )
 
         # 6. Optional admin path (interim: OTP → Bearer authTokenId header).
         if not assume_yes and ui.confirm(
