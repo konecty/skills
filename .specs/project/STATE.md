@@ -97,3 +97,9 @@ Probed live against a fresh `konecty/konecty` stack on alt ports (:3200).
 - **Consent UI change in the external UI repo** (admin checkbox unchecked + risk warning) — API contract pinned by Konecty tests; coordination note recorded in the Konecty spec + mcp.md.
 - **Re-run the e2e suites against the next published Konecty image** (vs the local-source build) to catch works-on-main-only drift.
 - ~~Fully-live e2e for the drifted paths (PR #299)~~ — superseded by the MCP-first harness (2026-07-13).
+
+## Feature — oauth-only-0.3.0 (grill no repo Konecty, 2026-07-22)
+
+Spec em `.specs/features/oauth-only-0.3.0/spec.md`, branch `feat/oauth-only-0.3.0`. Decisões do dono: **purga total** de OTP e `authTokenId` nas skills públicas (konecty-data/meta/setup) **e no instalador** (`--admin-auth otp` removido; breaking, release 0.3.0); konecty-dev fora do escopo; OAuth via MCP é o único caminho documentado. Novos contratos do Konecty a documentar quando congelarem: `file_upload` → single-use upload URL; `meta_delete` + `MetaObjects.Trash`. Fim do ciclo: validação empírica do plugin (`/plugin marketplace add konecty/skills`) + `make publish`; marketplaces curados fora deste ciclo.
+
+Nota: a ideia diferida "Full-module deletion MCP tool in Konecty" (acima) está sendo resolvida pelo `meta_delete` (spec `admin-mcp-meta-delete` no repo Konecty).
