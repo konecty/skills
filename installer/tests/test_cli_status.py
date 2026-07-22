@@ -3,7 +3,7 @@
 Isolation:
 - KONECTY_HOME -> tmp directory (avoids ~/.konecty)
 - os.chdir -> tmp project directory
-- _probe_konecty patched for doctor tests (no network)
+- mcp_config.probe_well_known / cli_available / list_servers patched for doctor tests (no network, no claude CLI)
 - manifest.json seeded directly for each test
 """
 from __future__ import annotations
@@ -149,10 +149,10 @@ class TestCmdStatus(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("No installation found", out)
 
-    # --- test (d): credentials shown in status output -----------------------
+    # --- test (d): cached URL shown in status output -----------------------
 
-    def test_status_shows_credential_presence(self) -> None:
-        """status shows url/token set/missing from .env."""
+    def test_status_shows_url_presence(self) -> None:
+        """status shows url set/missing from .env."""
         self._seed_manifest()
         env_path = self._konecty_home / ".env"
         env_path.write_text("KONECTY_URL=https://h.example\n")
@@ -166,9 +166,7 @@ class TestCmdStatus(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         out = buf.getvalue()
-        # url is set, token is missing
         self.assertIn("url=set", out)
-        self.assertIn("token=missing", out)
 
     # --- T20: MCP registration shown in status --------------------------------
 
@@ -272,14 +270,10 @@ class TestCmdDoctor(unittest.TestCase):
         }
         (self._konecty_home / "manifest.json").write_text(json.dumps(manifest_data))
 
-        # Provide credentials so _probe_konecty is called.
-        (self._konecty_home / ".env").write_text(
-            "KONECTY_URL=https://h.example\nKONECTY_TOKEN=tok123\n"
-        )
+        (self._konecty_home / ".env").write_text("KONECTY_URL=https://h.example\n")
 
         buf = io.StringIO()
         with (
-            patch("konecty_skills.cli._probe_konecty", return_value=(True, "ok")),
             patch("konecty_skills.mcp_config.probe_well_known", side_effect=_probe_ok_status),
             patch("konecty_skills.mcp_config.cli_available", return_value=True),
             patch("konecty_skills.mcp_config.list_servers", return_value=["konecty", "konecty-admin"]),
@@ -292,8 +286,6 @@ class TestCmdDoctor(unittest.TestCase):
         # Should report the modified conflict.
         self.assertIn("scripts/auth.py", out)
         self.assertIn("modified", out)
-        # Should confirm the admin token check is OK.
-        self.assertIn("Admin token check: OK", out)
 
     def test_doctor_all_match(self) -> None:
         """doctor reports 'All files match' when hashes are correct."""
@@ -352,16 +344,12 @@ class TestCmdDoctor(unittest.TestCase):
         }
         (self._konecty_home / "manifest.json").write_text(json.dumps(manifest_data))
 
-    def _write_env(self, token: bool = False) -> None:
-        content = "KONECTY_URL=https://h.example\n"
-        if token:
-            content += "KONECTY_TOKEN=tok123\n"
-        (self._konecty_home / ".env").write_text(content)
+    def _write_env(self) -> None:
+        (self._konecty_home / ".env").write_text("KONECTY_URL=https://h.example\n")
 
-    def _run_doctor(self, probe, servers=None, cli=True, konecty_probe=(True, "ok")):
+    def _run_doctor(self, probe, servers=None, cli=True):
         buf = io.StringIO()
         with (
-            patch("konecty_skills.cli._probe_konecty", return_value=konecty_probe),
             patch("konecty_skills.mcp_config.probe_well_known", side_effect=probe),
             patch("konecty_skills.mcp_config.cli_available", return_value=cli),
             patch("konecty_skills.mcp_config.list_servers", return_value=servers or []),
@@ -439,84 +427,6 @@ class TestCmdDoctor(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("claude CLI not found", out)
         self.assertIn("cannot verify MCP registration", out)
-
-    def test_doctor_stale_admin_token_remediation(self) -> None:
-        self._seed_min_manifest()
-        self._write_env(token=True)
-        rc, out = self._run_doctor(
-            _probe_ok_status,
-            servers=["konecty", "konecty-admin"],
-            konecty_probe=(False, "HTTP 401"),
-        )
-        self.assertEqual(rc, 0)
-        self.assertIn("Admin token check failed", out)
-        self.assertIn("re-run the OTP login", out)
-        self.assertIn("konecty-admin", out)
-
-    def test_doctor_no_token_skips_admin_probe(self) -> None:
-        self._seed_min_manifest()
-        self._write_env(token=False)
-        with patch("konecty_skills.cli._probe_konecty") as mock_probe:
-            rc, out = self._run_doctor_no_konecty_patch(_probe_ok_status, mock_probe)
-        self.assertEqual(rc, 0)
-        mock_probe.assert_not_called()
-        self.assertNotIn("Admin token check", out)
-
-    def _run_doctor_no_konecty_patch(self, probe, _already_patched_probe):
-        buf = io.StringIO()
-        with (
-            patch("konecty_skills.mcp_config.probe_well_known", side_effect=probe),
-            patch("konecty_skills.mcp_config.cli_available", return_value=True),
-            patch("konecty_skills.mcp_config.list_servers", return_value=["konecty"]),
-            patch("sys.stdout", buf),
-        ):
-            rc = main(["doctor"])
-        return rc, buf.getvalue()
-
-
-class TestProbeKonectySchemeGuard(unittest.TestCase):
-    """B310 — _probe_konecty must reject unsupported URL schemes."""
-
-    def test_unsupported_scheme_returns_false(self) -> None:
-        """A file:// or other non-http/https URL must not reach urlopen."""
-        from konecty_skills.cli import _probe_konecty
-
-        ok, detail = _probe_konecty("file:///etc/passwd", "tok")
-        self.assertFalse(ok)
-        self.assertIn("scheme", detail.lower())
-
-    def test_ftp_scheme_returns_false(self) -> None:
-        """An ftp:// URL must return (False, ...) without network access."""
-        from konecty_skills.cli import _probe_konecty
-
-        ok, detail = _probe_konecty("ftp://example.com", "tok")
-        self.assertFalse(ok)
-
-    def test_https_scheme_is_allowed(self) -> None:
-        """https:// passes the scheme check (network call patched out)."""
-        from konecty_skills.cli import _probe_konecty
-        import urllib.error
-
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=urllib.error.URLError("connection refused"),
-        ):
-            ok, _detail = _probe_konecty("https://example.com", "tok")
-        # Should fail due to network error, not scheme error.
-        self.assertFalse(ok)
-
-    def test_http_scheme_is_allowed(self) -> None:
-        """http:// passes the scheme check (network call patched out)."""
-        from konecty_skills.cli import _probe_konecty
-        import urllib.error
-
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=urllib.error.URLError("connection refused"),
-        ):
-            ok, _detail = _probe_konecty("http://localhost:3000", "tok")
-        # Should fail due to network error, not scheme error.
-        self.assertFalse(ok)
 
 
 if __name__ == "__main__":

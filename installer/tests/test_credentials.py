@@ -1,5 +1,6 @@
-"""Unit tests for konecty_skills.credentials (T7; trimmed to the interim
-admin-token role in T20 — the auth.py-subprocess flow and its tests are gone)."""
+"""Unit tests for konecty_skills.credentials (T7; trimmed to a URL cache in
+T20/0.3.0 — the legacy manual-login/Bearer-header admin token flow was
+removed, OAuth is the only auth path)."""
 from __future__ import annotations
 
 import os
@@ -7,37 +8,12 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from konecty_skills.credentials import (
     current_env,
-    normalize_phone,
-    otp_login,
-    request_otp,
     validate_url,
-    verify_otp,
-    write_env,
     write_url_only,
 )
-
-
-class TestNormalizePhone(unittest.TestCase):
-    """E.164 normalization mirroring the Konecty MCP session tools."""
-
-    def test_e164_passthrough(self):
-        self.assertEqual(normalize_phone("+5511999999999"), "+5511999999999")
-
-    def test_brazilian_11_digits_gets_plus55(self):
-        self.assertEqual(normalize_phone("11999999999"), "+5511999999999")
-
-    def test_brazilian_10_digits_gets_plus55(self):
-        self.assertEqual(normalize_phone("1133334444"), "+551133334444")
-
-    def test_separators_are_stripped(self):
-        self.assertEqual(normalize_phone("(11) 99999-9999"), "+5511999999999")
-
-    def test_other_lengths_pass_through(self):
-        self.assertEqual(normalize_phone("123"), "123")
 
 
 class TestValidateUrl(unittest.TestCase):
@@ -86,16 +62,14 @@ class TestWriteUrlOnlyAndCurrentEnv(unittest.TestCase):
         file_mode = stat.S_IMODE(os.stat(self.env_path).st_mode)
         self.assertEqual(file_mode, 0o600)
 
-    def test_preserves_existing_token_line(self):
-        # Pre-write a KONECTY_TOKEN line.
+    def test_preserves_other_lines(self):
         self.env_path.parent.mkdir(parents=True, exist_ok=True)
-        self.env_path.write_text(
-            "KONECTY_TOKEN=abc123\nSOME_OTHER=val\n", encoding="utf-8"
-        )
+        self.env_path.write_text("SOME_OTHER=val\n", encoding="utf-8")
         write_url_only("https://updated.example.com", path=self.env_path)
+        content = self.env_path.read_text(encoding="utf-8")
+        self.assertIn("SOME_OTHER=val", content)
         env = current_env(path=self.env_path)
         self.assertEqual(env["url"], "https://updated.example.com")
-        self.assertEqual(env["token"], "abc123")
 
     def test_replaces_existing_url_line(self):
         self.env_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,159 +82,12 @@ class TestWriteUrlOnlyAndCurrentEnv(unittest.TestCase):
     def test_current_env_missing_file(self):
         env = current_env(path=Path(self._td.name) / "nonexistent" / ".env")
         self.assertIsNone(env["url"])
-        self.assertIsNone(env["token"])
 
-    def test_current_env_both_values(self):
+    def test_current_env_reads_url(self):
         self.env_path.parent.mkdir(parents=True, exist_ok=True)
-        self.env_path.write_text(
-            "KONECTY_URL=https://x.com\nKONECTY_TOKEN=tok99\n", encoding="utf-8"
-        )
+        self.env_path.write_text("KONECTY_URL=https://x.com\n", encoding="utf-8")
         env = current_env(path=self.env_path)
         self.assertEqual(env["url"], "https://x.com")
-        self.assertEqual(env["token"], "tok99")
-
-
-class TestOtpOverHttp(unittest.TestCase):
-    """request_otp / verify_otp / otp_login (T18 — interim admin token, no auth.py)."""
-
-    URL = "https://h.example"
-
-    def test_request_otp_success_email_payload(self):
-        with patch("konecty_skills.credentials._post_json", return_value={"success": True}) as mock_post:
-            self.assertTrue(request_otp(self.URL, "admin@h.example"))
-        endpoint, payload = mock_post.call_args[0]
-        self.assertEqual(endpoint, f"{self.URL}/api/auth/request-otp")
-        self.assertEqual(payload, {"email": "admin@h.example"})
-
-    def test_request_otp_phone_payload(self):
-        with patch("konecty_skills.credentials._post_json", return_value={"success": True}) as mock_post:
-            self.assertTrue(request_otp(self.URL, "+5511999999999"))
-        _endpoint, payload = mock_post.call_args[0]
-        self.assertEqual(payload, {"phoneNumber": "+5511999999999"})
-
-    def test_request_otp_normalizes_brazilian_phone(self):
-        # Live failure: "11111111111" was sent raw and rejected as non-E.164.
-        with patch("konecty_skills.credentials._post_json", return_value={"success": True}) as mock_post:
-            self.assertTrue(request_otp(self.URL, "11999999999"))
-        _endpoint, payload = mock_post.call_args[0]
-        self.assertEqual(payload, {"phoneNumber": "+5511999999999"})
-
-    def test_request_otp_failure(self):
-        with patch("konecty_skills.credentials._post_json", return_value={}):
-            self.assertFalse(request_otp(self.URL, "admin@h.example"))
-
-    def test_verify_otp_success_returns_auth_id(self):
-        response = {"success": True, "logged": True, "authId": "auth-1"}
-        with patch("konecty_skills.credentials._post_json", return_value=response) as mock_post:
-            token = verify_otp(self.URL, "admin@h.example", " 123456 ")
-        self.assertEqual(token, "auth-1")
-        endpoint, payload = mock_post.call_args[0]
-        self.assertEqual(endpoint, f"{self.URL}/api/auth/verify-otp")
-        self.assertEqual(payload, {"email": "admin@h.example", "otpCode": "123456"})
-
-    def test_verify_otp_not_logged_returns_none(self):
-        response = {"success": True, "logged": False}
-        with patch("konecty_skills.credentials._post_json", return_value=response):
-            self.assertIsNone(verify_otp(self.URL, "admin@h.example", "123456"))
-
-    def test_verify_otp_missing_auth_id_returns_none(self):
-        response = {"success": True, "logged": True}
-        with patch("konecty_skills.credentials._post_json", return_value=response):
-            self.assertIsNone(verify_otp(self.URL, "admin@h.example", "123456"))
-
-    @patch("builtins.input", return_value="654321")
-    def test_otp_login_happy_path(self, _mock_input):
-        with (
-            patch("konecty_skills.credentials.request_otp", return_value=True) as mock_req,
-            patch("konecty_skills.credentials.verify_otp", return_value="auth-9") as mock_ver,
-        ):
-            token = otp_login(self.URL, "admin@h.example")
-        self.assertEqual(token, "auth-9")
-        mock_req.assert_called_once_with(self.URL, "admin@h.example")
-        mock_ver.assert_called_once_with(self.URL, "admin@h.example", "654321")
-
-    @patch("builtins.input", return_value="000000")
-    def test_otp_login_request_failure_skips_verify(self, _mock_input):
-        with (
-            patch("konecty_skills.credentials.request_otp", return_value=False),
-            patch("konecty_skills.credentials.verify_otp") as mock_ver,
-        ):
-            self.assertIsNone(otp_login(self.URL, "admin@h.example"))
-        mock_ver.assert_not_called()
-
-    def test_post_json_sends_strict_cors_and_user_agent_headers(self):
-        # /api/auth/* is a strict-CORS zone: without Sec-Fetch-Site the server
-        # answers 403 "Origin header required" (reproduced live).
-        import json as _json
-        from unittest.mock import MagicMock
-
-        from konecty_skills.credentials import _post_json
-        from konecty_skills.mcp_config import USER_AGENT
-
-        resp = MagicMock()
-        resp.__enter__ = MagicMock(return_value=resp)
-        resp.__exit__ = MagicMock(return_value=False)
-        resp.read.return_value = b"{}"
-        with patch("json.load", return_value={"success": True}), patch(
-            "urllib.request.urlopen", return_value=resp
-        ) as mock_open:
-            result = _post_json("https://h.example/api/auth/request-otp", {"a": 1})
-        self.assertEqual(result, {"success": True})
-        req = mock_open.call_args[0][0]
-        self.assertEqual(req.get_header("Sec-fetch-site"), "none")
-        self.assertEqual(req.get_header("User-agent"), USER_AGENT)
-        self.assertEqual(_json.loads(req.data.decode()), {"a": 1})
-
-    def test_post_json_network_error_returns_empty(self):
-        import urllib.error
-        from konecty_skills.credentials import _post_json
-
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("down")):
-            self.assertEqual(_post_json("https://h.example/api", {"a": 1}), {})
-
-    def test_post_json_rejects_non_http_scheme(self):
-        from konecty_skills.credentials import _post_json
-
-        with patch("urllib.request.urlopen") as mock_open:
-            self.assertEqual(_post_json("file:///etc/passwd", {}), {})
-        mock_open.assert_not_called()
-
-
-class TestWriteEnv(unittest.TestCase):
-    """write_env stores the interim admin token (URL + token, 0o600)."""
-
-    def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.env_path = Path(self._td.name) / ".konecty" / ".env"
-
-    def tearDown(self):
-        self._td.cleanup()
-
-    def test_writes_url_and_token(self):
-        write_env("https://h.example", "tok-1", path=self.env_path)
-        env = current_env(path=self.env_path)
-        self.assertEqual(env["url"], "https://h.example")
-        self.assertEqual(env["token"], "tok-1")
-
-    def test_replaces_previous_values_and_keeps_other_lines(self):
-        self.env_path.parent.mkdir(parents=True, exist_ok=True)
-        self.env_path.write_text(
-            "KONECTY_URL=https://old.example\nKONECTY_TOKEN=old-tok\nOTHER=x\n",
-            encoding="utf-8",
-        )
-        write_env("https://new.example", "new-tok", path=self.env_path)
-        content = self.env_path.read_text(encoding="utf-8")
-        self.assertNotIn("old.example", content)
-        self.assertNotIn("old-tok", content)
-        self.assertIn("OTHER=x", content)
-        env = current_env(path=self.env_path)
-        self.assertEqual(env["url"], "https://new.example")
-        self.assertEqual(env["token"], "new-tok")
-
-    def test_sets_file_mode_0o600(self):
-        write_env("https://h.example", "tok-1", path=self.env_path)
-        file_mode = stat.S_IMODE(os.stat(self.env_path).st_mode)
-        self.assertEqual(file_mode, 0o600)
 
 
 if __name__ == "__main__":

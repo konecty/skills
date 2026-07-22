@@ -145,17 +145,6 @@ def build_add_user(url: str) -> list[str]:
     ]
 
 
-def build_add_admin_token(url: str, token: str) -> list[str]:
-    """``claude mcp add`` argv for the admin MCP — interim Bearer header path."""
-    return [
-        "claude", "mcp", "add",
-        "--transport", "http",
-        "--scope", "user",
-        ADMIN_SERVER, f"{url}/admin-mcp",
-        "--header", f"Authorization: Bearer {token}",
-    ]
-
-
 def build_add_admin_oauth(url: str, client_id: str, callback_port: int) -> list[str]:
     """``claude mcp add`` argv for the admin MCP — OAuth trusted-client path."""
     return [

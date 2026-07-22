@@ -15,18 +15,14 @@ which guardrails to respect. It ships no scripts and makes no HTTP calls.
 
 ## Authentication
 
-Default path: **OAuth handled natively by Claude Code** — the token travels in the
-`Authorization` header automatically. Call every tool **without** an `authTokenId`
-argument. Fallback (no OAuth available): OTP login via the `session_*` tools, then pass
-the returned `authId` as `authTokenId` on each authenticated call.
-See [references/auth.md](references/auth.md).
+**OAuth, handled natively by the MCP host** (e.g. Claude Code) — the token travels in
+the `Authorization` header automatically. Call every tool as-is; there is no
+manual token argument to pass and nothing to manage. See [references/auth.md](references/auth.md).
 
 ## Tool inventory (user MCP)
 
 | Group | Tools | Auth |
 |-------|-------|------|
-| Session | `session_login_options`, `session_request_otp_email`, `session_request_otp_phone`, `session_verify_otp_email`, `session_verify_otp_phone` | public |
-| Session | `session_logout` | authenticated |
 | Modules | `modules_list`, `modules_fields` | authenticated |
 | Field helpers | `field_picklist_options`, `field_lookup_search` | authenticated |
 | Filter | `filter_build` | public (no auth) |
@@ -48,7 +44,7 @@ optional visual enhancements — never make a data flow depend on them.
 | Atualizar, editar, modificar, alterar status / update record | `records_find_by_id` → `records_update` (with `_updatedAt`) | [references/create-update.md](references/create-update.md) |
 | Deletar, remover, apagar, excluir registro / delete record | `records_delete_preview` → **user confirms** → `records_delete` | [references/delete.md](references/delete.md) |
 | Upload, anexar arquivo, enviar imagem, baixar anexo / upload, download, delete file | `file_upload` / `file_download` / `file_delete` | [references/files.md](references/files.md) |
-| Login, autenticar, sessão expirada / log in, re-authenticate | OAuth (default) or `session_*` OTP fallback | [references/auth.md](references/auth.md) |
+| Login, autenticar, sessão expirada / log in, re-authenticate | OAuth reconnect via the MCP host | [references/auth.md](references/auth.md) |
 | Erro de permissão, acesso negado, indisponível / permission or availability errors | map error → explanation + next step | [references/errors.md](references/errors.md) |
 
 ## Query strategy (always)
