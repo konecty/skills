@@ -3,8 +3,9 @@
 
 Argparse dispatcher for the six lifecycle commands (MCP-first): ``install``
 validates the company URL, registers the ``konecty``/``konecty-admin`` MCP
-servers in Claude Code, and copies the four skills; ``configure`` handles the
-interim admin token; ``doctor`` checks URL/well-known/audience/registration.
+servers in Claude Code (both OAuth — the admin server via a trusted client,
+ADR-0011), and copies the four skills; ``configure`` caches the company URL
+for ``status``/``doctor``; ``doctor`` checks URL/well-known/audience/registration.
 """
 from __future__ import annotations
 
@@ -20,7 +21,6 @@ from . import __version__
 DEFAULT_REF = "main"
 ENGINES = ("claude", "agents", "cursor")
 SCOPES = ("project", "global")
-ADMIN_AUTH_MODES = ("oauth", "otp")
 DEFAULT_ADMIN_CLIENT_ID = "claude-code-admin"
 DEFAULT_ADMIN_CALLBACK_PORT = 19819
 
@@ -92,23 +92,6 @@ def _install_admin_oauth(mcp_url: str) -> None:
         )
 
 
-def _install_admin_otp(mcp_url: str) -> None:
-    """Fallback admin path (legacy / older Konecty): OTP → Bearer authTokenId."""
-    from . import credentials, mcp_config, ui
-
-    identifier = ui.ask("Admin email or phone (E.164)")
-    admin_token = credentials.otp_login(mcp_url, identifier)
-    if admin_token:
-        credentials.write_env(mcp_url, admin_token, _env_path())
-        admin_result = mcp_config.register(
-            mcp_config.ADMIN_SERVER,
-            mcp_config.build_add_admin_token(mcp_url, admin_token),
-        )
-        _report_registration(admin_result, mcp_config.ADMIN_SERVER)
-    else:
-        ui.warn("Admin OTP login failed; skipping konecty-admin registration.")
-
-
 def cmd_install(args: argparse.Namespace) -> int:
     from . import banner, engines, fetcher, installer, manifest, mcp_config, ui
 
@@ -177,16 +160,12 @@ def cmd_install(args: argparse.Namespace) -> int:
             "pick 'konecty' and Authenticate — the browser will open."
         )
 
-        # 6. Optional admin path. OAuth trusted-client is the default; OTP is a
-        #    labeled fallback for older Konecty (or --admin-auth otp). The step
-        #    stays interactive-only, so under --yes admin is skipped entirely.
+        # 6. Optional admin path — OAuth trusted client only (ADR-0011). The
+        #    step stays interactive-only, so under --yes admin is skipped entirely.
         if not assume_yes and ui.confirm(
             "Set up admin MCP access (requires a Konecty admin user)?", False, False
         ):
-            if args.admin_auth == "otp":
-                _install_admin_otp(mcp_url)
-            else:
-                _install_admin_oauth(mcp_url)
+            _install_admin_oauth(mcp_url)
 
     # 7. Fetch skills.
     try:
@@ -255,54 +234,19 @@ def _select_installations(args: argparse.Namespace, installs: dict) -> list[tupl
     return []
 
 
-def _probe_konecty(url: str, token: str) -> tuple[bool, str]:
-    """Probe the Konecty server with a GET to /api/auth/login-options.
-
-    Returns (reachable, detail).  All exceptions are caught so this is always
-    safe to call — callers just inspect the boolean.
-    """
-    import urllib.parse
-    import urllib.request
-    import urllib.error
-
-    from . import mcp_config
-
-    probe_url = f"{url.rstrip('/')}/api/auth/login-options"
-
-    # B310: guard scheme before calling urlopen.
-    scheme = urllib.parse.urlparse(probe_url).scheme.lower()
-    if scheme not in ("http", "https"):
-        return False, f"unsupported URL scheme: {scheme!r}"
-
-    try:
-        req = urllib.request.Request(
-            probe_url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "User-Agent": mcp_config.USER_AGENT,
-            },
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310  # nosec B310 - scheme guarded above
-            return True, f"HTTP {resp.status}"
-    except Exception as exc:  # noqa: BLE001
-        return False, str(exc)
-
-
 def cmd_configure(args: argparse.Namespace) -> int:
-    """Interim admin-token setup: URL → OTP → ~/.konecty/.env + konecty-admin entry."""
-    from . import credentials, mcp_config, ui
+    """Cache the Konecty URL in ~/.konecty/.env for status/doctor to reuse."""
+    from . import credentials, ui
 
     assume_yes: bool = args.yes
 
-    # Read existing credentials.
+    # Read existing cached URL.
     env = credentials.current_env(_env_path())
 
-    # If credentials already exist and we're not force-confirming, ask.
-    if (env["url"] or env["token"]) and not assume_yes:
-        masked_token = (env["token"][:4] + "****") if env["token"] else "(not set)"
-        ui.step(f"Current URL  : {env['url'] or '(not set)'}")
-        ui.step(f"Current token: {masked_token}")
-        if not ui.confirm("Overwrite existing credentials?", False, args.yes):
+    # If a URL is already cached and we're not force-confirming, ask.
+    if env["url"] and not assume_yes:
+        ui.step(f"Current URL: {env['url']}")
+        if not ui.confirm("Overwrite the cached URL?", False, args.yes):
             return 0
 
     # Resolve URL.
@@ -318,28 +262,7 @@ def cmd_configure(args: argparse.Namespace) -> int:
         else:
             url = credentials.prompt_url(env["url"])
 
-    if assume_yes:
-        credentials.write_url_only(url, _env_path())
-        return 0
-
-    # Interactive: offer the admin OTP login (interim konecty-admin auth).
-    run_otp_now = ui.confirm("Run the admin OTP login now?", True, False)
-    if run_otp_now:
-        identifier = ui.ask("Admin email or phone (E.164)")
-        token = credentials.otp_login(url, identifier)
-        if token:
-            credentials.write_env(url, token, _env_path())
-            result = mcp_config.register(
-                mcp_config.ADMIN_SERVER,
-                mcp_config.build_add_admin_token(url, token),
-            )
-            _report_registration(result, mcp_config.ADMIN_SERVER)
-        else:
-            ui.warn("OTP login failed; writing URL only.")
-            credentials.write_url_only(url, _env_path())
-    else:
-        credentials.write_url_only(url, _env_path())
-
+    credentials.write_url_only(url, _env_path())
     return 0
 
 
@@ -353,7 +276,6 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     env = credentials.current_env(_env_path())
     url_status = "set" if env["url"] else "missing"
-    token_status = "set" if env["token"] else "missing"
 
     # MCP registration status (user-scope, shared by every installation).
     if mcp_config.cli_available():
@@ -374,7 +296,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         skill_keys = list(installation.get("skills", {}).keys())
         ui.step(f"Skills  : {', '.join(skill_keys) if skill_keys else '(none)'}")
         ui.step(f"MCP     : {mcp_status}")
-        ui.step(f"Creds   : url={url_status}, token={token_status} (interim admin token store)")
+        ui.step(f"Creds   : url={url_status} (cached for status/doctor; auth is OAuth)")
 
     return 0
 
@@ -459,18 +381,6 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "claude CLI not found — cannot verify MCP registration; "
             "run the claude mcp commands manually (see konecty-setup)."
         )
-
-    # --- Check 3: interim admin token validity (when configured) --------------
-    if env["url"] and env["token"]:
-        reachable, detail = _probe_konecty(env["url"], env["token"])
-        if reachable:
-            ui.ok(f"Admin token check: OK ({detail})")
-        else:
-            ui.warn(
-                f"Admin token check failed ({detail}) — re-run the OTP login "
-                "(konecty-setup 'fix auth') and re-register the "
-                "konecty-admin entry."
-            )
 
     return 0
 
@@ -599,20 +509,15 @@ def build_parser() -> argparse.ArgumentParser:
     }
     helps = {
         "install": "validate the company URL, register the Konecty MCP servers, copy the skills",
-        "configure": "interim admin token only: OTP login + konecty-admin MCP entry",
-        "status": "show installed skills, MCP registration, and admin-token status",
+        "configure": "cache the Konecty URL in ~/.konecty/.env for status/doctor",
+        "status": "show installed skills, MCP registration, and cached URL",
         "update": "re-fetch skills with SHA-256 protection (keeps local edits)",
-        "doctor": "check URL, MCP well-known/audience, MCP registration, and admin token",
+        "doctor": "check URL, MCP well-known/audience, and MCP registration",
         "uninstall": "remove installed skills (--purge also removes credentials + MCP entries)",
     }
     for name, handler in handlers.items():
         sp = sub.add_parser(name, help=helps[name])
         _common_flags(sp)
-        if name == "install":
-            sp.add_argument(
-                "--admin-auth", choices=ADMIN_AUTH_MODES, default="oauth",
-                help="admin MCP auth path (default: oauth trusted client; otp = legacy fallback)",
-            )
         if name == "status" or name == "doctor":
             sp.add_argument("--all", action="store_true", help="report every installation, not just the current dir")
         if name == "uninstall":

@@ -1,6 +1,6 @@
 ---
 name: konecty-setup
-description: "Setup and troubleshooting for the Konecty MCP connection in Claude Code: register or replace the konecty and konecty-admin MCP servers for a company URL, guide the browser OAuth login, run the admin token path (interim OTP), and diagnose connection, login, and permission errors. Use when: configurar konecty, conectar meu crm, trocar de empresa, mudar a URL do konecty, problema de login no konecty, problema de permissão no konecty, refazer login, configurar acesso admin, set up konecty, connect my CRM, switch company URL, fix konecty login, re-authenticate, MCP connection or enablement errors. Do NOT use for data record operations (find/create/update/delete/upload) — use konecty-data; do NOT use for metadata/schema administration (documents, lists, views, access, hooks, namespace) — use konecty-meta."
+description: "Setup and troubleshooting for the Konecty MCP connection in Claude Code: register or replace the konecty and konecty-admin MCP servers for a company URL, guide the browser OAuth login (user and admin, trusted client), and diagnose connection, login, and permission errors. Use when: configurar konecty, conectar meu crm, trocar de empresa, mudar a URL do konecty, problema de login no konecty, problema de permissão no konecty, refazer login, configurar acesso admin, set up konecty, connect my CRM, switch company URL, fix konecty login, re-authenticate, MCP connection or enablement errors. Do NOT use for data record operations (find/create/update/delete/upload) — use konecty-data; do NOT use for metadata/schema administration (documents, lists, views, access, hooks, namespace) — use konecty-meta."
 ---
 
 # Konecty Setup
@@ -17,8 +17,7 @@ There are two ways to register the user-scope servers; the agent picks by
 environment (see *Registration flow*). `<url>` is the normalized base URL (see
 *URL validation*). Server names are fixed: `konecty` and `konecty-admin`.
 Registration is always **user scope** — the CRM follows the person across
-projects. **OAuth is the default in both mechanisms**; Bearer/OTP is a fallback
-only (legacy / no-browser).
+projects. **OAuth is the only auth mechanism**, for both servers.
 
 ### A. `claude` CLI commands (when the CLI is available)
 
@@ -28,11 +27,8 @@ These are exactly the commands the `konecty-skills` installer runs.
 # User MCP (data + OAuth login)
 claude mcp add --transport http --scope user konecty <url>/mcp
 
-# Admin MCP — default (OAuth trusted client; browser login on first use)
+# Admin MCP (OAuth trusted client; browser login on first use)
 claude mcp add --transport http --scope user konecty-admin <url>/admin-mcp --client-id claude-code-admin --callback-port 19819
-
-# Admin MCP — fallback (Bearer authTokenId from an admin OTP login; legacy Konecty)
-claude mcp add --transport http --scope user konecty-admin <url>/admin-mcp --header "Authorization: Bearer <authTokenId>"
 
 # add-json alternative (same entry as the JSON below)
 claude mcp add-json konecty '{"type":"http","url":"<url>/mcp"}'
@@ -59,9 +55,6 @@ error.
 
 // Admin MCP (OAuth trusted client) — admins only
 "konecty-admin": {"type":"http","url":"<url>/admin-mcp","oauth":{"clientId":"claude-code-admin","callbackPort":19819}}
-
-// Bearer fallback (NOT default — legacy / no-browser)
-"konecty-admin": {"type":"http","url":"<url>/admin-mcp","headers":{"Authorization":"Bearer <authTokenId>"}}
 ```
 
 ## Registration flow (environment-aware, autonomous)
@@ -126,9 +119,9 @@ PY
   *Honesty caveat:* the app config-write and the app reading `~/.claude.json` are
   doc-confirmed. The app `/mcp` → Authenticate browser UX is the documented
   OAuth mechanism but **not yet empirically verified by us** — present it as the
-  expected flow. If OAuth can't be completed (no browser), the **Bearer
-  fallback** (mechanism B admin entry / `headers` on the user entry) is the
-  guaranteed-no-browser alternative.
+  expected flow. If OAuth can't be completed (no browser, no consent screen),
+  there is no client-side fallback — see
+  [references/troubleshooting.md](references/troubleshooting.md).
 
 ## URL validation (before any registration)
 
@@ -170,25 +163,22 @@ Replace, never duplicate:
 2. Re-register `konecty` for the new URL via the Registration flow (CLI: `remove`
    then add; app: the python3 write overwrites the single `konecty` entry).
 3. If `konecty-admin` is registered, re-register it for the new URL the same way —
-   the old admin token belongs to the old company; a **new OAuth consent** (or
-   OTP login on the fallback path) against the new URL is required.
+   the old admin token belongs to the old company; a **new OAuth consent**
+   against the new URL is required.
 4. Browser OAuth will re-run on first use (app: after restart) — that is expected.
 
 ## Flow: fix auth (re-login)
 
 - **User MCP (OAuth)**: 401/UNAUTHORIZED on `konecty` tools → re-authenticate in
   Claude Code (`/mcp` → reconnect, browser login again). Nothing to reconfigure.
-- **Admin MCP (OAuth, default)**: 401/UNAUTHORIZED on `meta_*` tools →
+- **Admin MCP (OAuth)**: 401/UNAUTHORIZED on `meta_*` tools →
   re-authenticate in Claude Code (`/mcp` → `konecty-admin` → reconnect, browser
   login again). Nothing to reconfigure.
-- **Admin MCP (OTP fallback token)**: 401 on `meta_*` tools when using the
-  Bearer path → the `authTokenId` expired. Re-run the admin OTP path below and
-  re-register the `konecty-admin` entry (remove + add with the fresh token).
 
 ## Flow: admin path
 
-**Default (OAuth trusted client)** — no stored token; the `admin` scope is
-granted at the browser consent on first use:
+**OAuth trusted client** — the only mechanism; no stored token, the `admin`
+scope is granted at the browser consent on first use:
 
 1. The user must be a Konecty admin (`admin: true`).
 2. The deployment must seed a trusted first-party client via `OAUTH_CLIENTS_JSON`
@@ -210,19 +200,10 @@ granted at the browser consent on first use:
    seeded (or the user is not an admin) — see
    [references/troubleshooting.md](references/troubleshooting.md).
 
-**Fallback (interim OTP → Bearer)** — for older Konecty without the trusted
-client, or when explicitly requested (`konecty-skills install --admin-auth otp`):
-
-1. The user must be a Konecty admin (`admin: true`).
-2. Run the OTP flow with the `session_*` tools on the **user MCP** (`konecty`
-   server): `session_login_options` → `session_request_otp_email` /
-   `session_request_otp_phone` → ask the user for the code →
-   `session_verify_otp_email` / `session_verify_otp_phone` → returns `authId`.
-3. Register the admin server with the Bearer form, using `authId` as
-   `<authTokenId>` — CLI: the `--header "Authorization: Bearer ..."` command;
-   app: the Bearer-fallback JSON entry (`headers` object). Remove/replace any
-   existing `konecty-admin` entry first.
-4. Never echo or store the OTP code; the token lives only in the MCP entry header.
+If this Konecty deployment does not yet expose the trusted client (older
+version, or `OAUTH_CLIENTS_JSON` not provisioned), there is no client-side
+fallback — see [references/troubleshooting.md](references/troubleshooting.md)
+for the server-side remediation.
 
 ## Troubleshooting
 

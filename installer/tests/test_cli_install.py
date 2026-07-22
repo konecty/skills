@@ -5,7 +5,6 @@ Isolation strategy:
 - os.chdir → tmp project directory (avoids cwd side-effects)
 - fetcher.fetch_skills patched → returns a fake skills_root (no network)
 - mcp_config.probe_well_known / register patched → no network, no claude CLI
-- credentials.otp_login patched → no subprocess/network
 - banner.print_full patched → silences output noise
 """
 from __future__ import annotations
@@ -303,9 +302,9 @@ class TestCmdInstall(unittest.TestCase):
         self.assertEqual(user_file.read_text(), "# mine, do not touch\n",
                          "pre-existing user files must never be modified")
 
-    # --- admin path: OAuth is the default (AC1) --------------------------------
+    # --- admin path: OAuth trusted client is the only path (AC1) ---------------
 
-    def test_install_interactive_admin_defaults_to_oauth(self) -> None:
+    def test_install_interactive_admin_uses_oauth(self) -> None:
         self._setup_project_dir()
         konecty_home = self._set_konecty_home()
 
@@ -317,13 +316,10 @@ class TestCmdInstall(unittest.TestCase):
             # URL, then client_id, then callback port (defaults accepted).
             patch("konecty_skills.ui.ask",
                   side_effect=["https://h.example", "claude-code-admin", "19819"]),
-            patch("konecty_skills.credentials.otp_login") as mock_otp,
         ):
             rc = main(["install", "--engine", "claude", "--scope", "project"])
 
         self.assertEqual(rc, 0)
-        # OTP path must never run when OAuth is the (default) choice.
-        mock_otp.assert_not_called()
 
         # Both servers registered: user first, then admin via the OAuth builder.
         calls = mock_register.call_args_list
@@ -390,74 +386,13 @@ class TestCmdInstall(unittest.TestCase):
             out,
         )
 
-    # --- admin path: OTP fallback (AC2) — selected via --admin-auth otp ----------
-
-    def test_install_admin_auth_otp_registers_admin_server(self) -> None:
-        self._setup_project_dir()
-        konecty_home = self._set_konecty_home()
-
-        p_fetch, p_probe, p_register, p_banner = self._patches()
-        with (
-            p_fetch, p_probe, p_register as mock_register, p_banner,
-            patch("konecty_skills.ui.select", return_value=["claude"]),
-            patch("konecty_skills.ui.confirm", return_value=True),
-            patch("konecty_skills.ui.ask", side_effect=["https://h.example", "admin@h.example"]),
-            patch("konecty_skills.credentials.otp_login", return_value="tok-admin-1") as mock_otp,
-        ):
-            rc = main(["install", "--admin-auth", "otp",
-                       "--engine", "claude", "--scope", "project"])
-
-        self.assertEqual(rc, 0)
-        mock_otp.assert_called_once_with("https://h.example", "admin@h.example")
-
-        # Both servers registered: user first, then admin with the Bearer header.
-        calls = mock_register.call_args_list
-        self.assertEqual(calls[0][0][0], "konecty")
-        self.assertEqual(calls[1][0][0], "konecty-admin")
-        self.assertEqual(
-            calls[1][0][1],
-            mcp_config.build_add_admin_token("https://h.example", "tok-admin-1"),
-        )
-
-        # Interim admin token stored in ~/.konecty/.env.
-        env_text = (konecty_home / ".env").read_text()
-        self.assertIn("KONECTY_URL=https://h.example", env_text)
-        self.assertIn("KONECTY_TOKEN=tok-admin-1", env_text)
-
-    def test_install_admin_auth_otp_failure_skips_admin_registration(self) -> None:
-        self._setup_project_dir()
-        konecty_home = self._set_konecty_home()
-
-        p_fetch, p_probe, p_register, p_banner = self._patches()
-        buf = io.StringIO()
-        with (
-            p_fetch, p_probe, p_register as mock_register, p_banner,
-            patch("konecty_skills.ui.select", return_value=["claude"]),
-            patch("konecty_skills.ui.confirm", return_value=True),
-            patch("konecty_skills.ui.ask", side_effect=["https://h.example", "admin@h.example"]),
-            patch("konecty_skills.credentials.otp_login", return_value=None),
-            patch("sys.stdout", buf),
-        ):
-            rc = main(["install", "--admin-auth", "otp",
-                       "--engine", "claude", "--scope", "project"])
-
-        self.assertEqual(rc, 0)
-        # Only the user server was registered.
-        self.assertEqual(mock_register.call_count, 1)
-        self.assertIn("Admin OTP login failed", buf.getvalue())
-        self.assertFalse((konecty_home / ".env").exists(),
-                         "no token must be stored on OTP failure")
-
     def test_install_yes_skips_admin_prompt_entirely(self) -> None:
         """--yes preserves current behavior: no admin registration at all."""
         self._setup_project_dir()
         konecty_home = self._set_konecty_home()
 
         p_fetch, p_probe, p_register, p_banner = self._patches()
-        with (
-            p_fetch, p_probe, p_register as mock_register, p_banner,
-            patch("konecty_skills.credentials.otp_login") as mock_otp,
-        ):
+        with p_fetch, p_probe, p_register as mock_register, p_banner:
             rc = main(["install", "--yes", "--engine", "claude",
                        "--scope", "project", "--url", "https://h.example"])
 
@@ -466,7 +401,6 @@ class TestCmdInstall(unittest.TestCase):
         mock_register.assert_called_once_with(
             "konecty", mcp_config.build_add_user("https://h.example")
         )
-        mock_otp.assert_not_called()
         self.assertFalse((konecty_home / ".env").exists())
 
     # --- engine fallback ---------------------------------------------------------

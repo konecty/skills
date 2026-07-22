@@ -14,12 +14,12 @@ uvx --from git+https://github.com/konecty/skills konecty-skills install
 
 | Command | What it does |
 |---------|--------------|
-| `install` | Prompt the company URL → validate (https + MCP well-known probe) → register the `konecty` MCP server (user scope) → optional admin path (OTP → `konecty-admin` entry with Bearer header) → copy the 4 skills → write manifest |
-| `configure` | Interim admin token only: OTP login → `~/.konecty/.env` + `konecty-admin` MCP entry |
-| `status` | Installed skills, engines, MCP registration, and admin-token presence |
+| `install` | Prompt the company URL → validate (https + MCP well-known probe) → register the `konecty` MCP server (user scope) → optional admin path (OAuth trusted client → `konecty-admin` entry) → copy the 4 skills → write manifest |
+| `configure` | Cache the company URL in `~/.konecty/.env` for `status`/`doctor` to reuse |
+| `status` | Installed skills, engines, MCP registration, and cached-URL presence |
 | `update` | Re-fetch skills with SHA-256 protection (never overwrites local edits) |
-| `doctor` | URL reachable, MCP well-known + audience match (`PLATFORM_MCP_RESOURCE_URL`), MCP servers registered, admin token validity |
-| `uninstall` | Remove the installed skills (`--purge` also removes credentials and the MCP entries) |
+| `doctor` | URL reachable, MCP well-known + audience match (`PLATFORM_MCP_RESOURCE_URL`), MCP servers registered |
+| `uninstall` | Remove the installed skills (`--purge` also removes the cached URL and the MCP entries) |
 
 Notes:
 
@@ -27,10 +27,11 @@ Notes:
   **replaced** (remove + add), never duplicated; pre-existing user files are never touched.
 - If the `claude` CLI is not installed, the exact `claude mcp add` commands are printed
   for manual execution instead of failing.
-- User authentication is OAuth handled natively by Claude Code (browser login on first
-  use). `~/.konecty/.env` only stores the **interim admin token** for the `konecty-admin`
-  server; once your Konecty supports admin OAuth (trusted clients), switching is a
-  re-registration only — see the `konecty-setup` skill.
+- Authentication is **OAuth only**, for both servers, handled natively by Claude Code
+  (browser login on first use). The admin server (`konecty-admin`) authenticates via a
+  **trusted client** (`claude-code-admin`, ADR-0011) that the deployment provisions
+  through `OAUTH_CLIENTS_JSON` — no token is ever stored by this installer. See the
+  `konecty-setup` skill.
 - Konecty instances without MCP support (well-known 404) are not supported by this
   version — pin the last script-based release tag instead.
 

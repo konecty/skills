@@ -25,7 +25,6 @@ from konecty_skills.mcp_config import (
     USER_SERVER,
     UrlValidationError,
     build_add_admin_oauth,
-    build_add_admin_token,
     build_add_user,
     build_list,
     build_remove,
@@ -216,18 +215,6 @@ class TestCommandBuilders(unittest.TestCase):
             ],
         )
 
-    def test_build_add_admin_token(self):
-        self.assertEqual(
-            build_add_admin_token(self.URL, "tok123"),
-            [
-                "claude", "mcp", "add",
-                "--transport", "http",
-                "--scope", "user",
-                "konecty-admin", f"{self.URL}/admin-mcp",
-                "--header", "Authorization: Bearer tok123",
-            ],
-        )
-
     def test_build_add_admin_oauth(self):
         self.assertEqual(
             build_add_admin_oauth(self.URL, "claude-code", 8976),
@@ -256,11 +243,10 @@ class TestCommandBuilders(unittest.TestCase):
 
     def test_format_command_quotes_args_with_spaces(self):
         """Printable form must match the skill template (double quotes)."""
-        argv = build_add_admin_token(self.URL, "tok123")
+        argv = ["claude", "mcp", "add", "--header", "Authorization: Bearer tok123"]
         self.assertEqual(
             format_command(argv),
-            "claude mcp add --transport http --scope user konecty-admin "
-            f'{self.URL}/admin-mcp --header "Authorization: Bearer tok123"',
+            'claude mcp add --header "Authorization: Bearer tok123"',
         )
 
     def test_format_command_no_quotes_when_unneeded(self):

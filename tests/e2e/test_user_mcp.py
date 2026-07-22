@@ -20,9 +20,8 @@ Known upstream deviations pinned here (reported with konecty/Konecty#453 rollup)
 - Optimistic-lock *conflict* rejection is currently disabled in Konecty
   (``src/imports/data/api/update.ts`` — check commented out), so a stale
   ``_updatedAt`` succeeds. The suite asserts the format requirement only.
-- ``file_upload`` applies the file but misreports an error: ``fileUpload``
-  returns the bare record on success while the MCP tool checks
-  ``result.success !== true``.
+- ``file_upload`` (0.3.0 contract) issues a single-use upload URL; the test
+  POSTs real multipart bytes to it and asserts the record association.
 """
 
 from __future__ import annotations
@@ -31,12 +30,11 @@ import time
 
 import pytest
 
-from conftest import E2E_URL, mongo_eval, requires_stack
+from conftest import E2E_URL, requires_stack
 from mcp_client import McpToolError
 
 pytestmark = requires_stack
 
-ADMIN_EMAIL = "support@konecty.com"
 
 
 # ── setup validation ───────────────────────────────────────────────────────
@@ -53,38 +51,13 @@ def test_well_known_protected_resource_announces_mcp():
     assert "read" in body["scopes_supported"]
 
 
-# ── auth.md: OTP session flow ──────────────────────────────────────────────
+# ── auth.md: OAuth-only (ADR-0020) ─────────────────────────────────────────
 
 
-def _latest_otp_code() -> str:
-    return mongo_eval(
-        'print(db.getCollection("data.Message").find({"data.otpCode":{$exists:true}})'
-        ".sort({_createdAt:-1}).limit(1).toArray()[0].data.otpCode)"
-    ).splitlines()[-1].strip()
-
-
-def test_otp_session_flow_with_per_tool_token(user_mcp):
-    options = user_mcp.call("session_login_options")
-    assert options.structured.get("options"), "no OTP options advertised"
-
-    requested = user_mcp.call("session_request_otp_email", {"email": ADMIN_EMAIL})
-    assert requested.structured["otpRequest"]["success"] is True
-
-    code = _latest_otp_code()
-    verified = user_mcp.call("session_verify_otp_email", {"email": ADMIN_EMAIL, "otpCode": code})
-    auth_id = verified.structured["authId"]
-    assert verified.structured["logged"] is True
-    assert auth_id
-
-    # per-tool authTokenId argument (docs/en/mcp.md preferred transport)
-    from mcp_client import McpClient
-
-    anon = McpClient(f"{E2E_URL}/mcp", token=user_mcp.token)  # header for HTTP guard
-    listed = anon.call("modules_list", {"authTokenId": auth_id})
-    assert any(m["document"] == "Contact" for m in listed.structured["modules"])
-
-    logout = user_mcp.call("session_logout", {"authTokenId": auth_id})
-    assert logout.structured.get("logout") is not None
+def test_session_tools_are_gone(user_mcp):
+    """ADR-0020 removed the in-band session_* tools; the surface must not list them."""
+    tools = user_mcp.tool_names()
+    assert not {n for n in tools if n.startswith("session_")}, tools
 
 
 # ── field-discovery.md ─────────────────────────────────────────────────────
@@ -286,31 +259,64 @@ def test_query_sql_on_explicit_request(user_mcp, seed_contacts):
 # ── files.md ───────────────────────────────────────────────────────────────
 
 
-def test_file_upload_download_delete(user_mcp, seed_contacts):
-    record_id = seed_contacts[2]["_id"]
-    file_meta = {"name": "e2e.txt", "key": "e2e.txt", "size": 4, "kind": "text/plain"}
+def _post_multipart(url: str, field_name: str, file_name: str, payload: bytes, content_type: str):
+    import urllib.request
+    import uuid
 
-    # Upstream bug (pinned): upload APPLIES the file but the tool misreports an
-    # error — fileUpload returns the bare record on success while the MCP tool
-    # checks result.success !== true.
+    boundary = uuid.uuid4().hex
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field_name}"; filename="{file_name}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode() + payload + f"\r\n--{boundary}--\r\n".encode()
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:  # noqa: PERF203
+        return error.code, error.read()
+
+
+def test_file_upload_download_delete(user_mcp, seed_contacts):
+    import json
+
+    record_id = seed_contacts[2]["_id"]
+
+    # 0.3.0 contract: file_upload issues a single-use upload URL; bytes travel
+    # over plain HTTP multipart, never through the MCP.
     upload = user_mcp.call(
         "file_upload",
-        {"document": "Contact", "recordId": record_id, "fieldName": "picture", "file": file_meta},
-        expect_error=True,
-    )
-    assert upload.is_error, "remove this pin once konecty fixes the file_upload success contract"
+        {"document": "Contact", "recordId": record_id, "fieldName": "picture", "fileName": "e2e.txt"},
+    ).structured
+    assert upload["method"] == "POST"
+    assert "upload-by-token/" in upload["uploadUrl"]
+
+    status, raw = _post_multipart(upload["uploadUrl"], "file", "local-name.txt", b"e2e!", "text/plain")
+    assert status == 200, raw
+    uploaded = json.loads(raw)
+    assert uploaded["success"] is True
+
+    # Single-use: reusing the URL must fail with 410 Gone.
+    reuse_status, _ = _post_multipart(upload["uploadUrl"], "file", "local-name.txt", b"e2e!", "text/plain")
+    assert reuse_status == 410
 
     fresh = user_mcp.call(
         "records_find_by_id", {"document": "Contact", "recordId": record_id}
     ).structured["record"]
     names = [f["name"] for f in fresh.get("picture") or []]
-    assert "e2e.txt" in names, "file metadata must be attached to the record"
+    assert "e2e.txt" in names, "file must be attached to the record under the tool fileName"
 
+    stored_name = (fresh.get("picture") or [])[0]["key"].rsplit("/", 1)[-1]
     download = user_mcp.call(
         "file_download",
-        {"document": "Contact", "recordId": record_id, "fieldName": "picture", "fileName": "e2e.txt"},
+        {"document": "Contact", "recordId": record_id, "fieldName": "picture", "fileName": stored_name},
     ).structured
-    assert download["fileUrl"].endswith("e2e.txt")
+    assert download["fileUrl"].endswith(stored_name)
 
     user_mcp.call(
         "file_delete",
@@ -318,16 +324,16 @@ def test_file_upload_download_delete(user_mcp, seed_contacts):
             "document": "Contact",
             "recordId": record_id,
             "fieldName": "picture",
-            "fileName": "e2e.txt",
+            "fileName": stored_name,
             "confirm": True,
         },
-        expect_error=True,  # same success-contract bug family as file_upload
+        expect_error=True,  # success-contract bug pinned upstream for fileRemove
     )
     fresh = user_mcp.call(
         "records_find_by_id", {"document": "Contact", "recordId": record_id}
     ).structured["record"]
     names = [f["name"] for f in fresh.get("picture") or []]
-    assert "e2e.txt" not in names, "file metadata must be removed from the record"
+    assert "e2e.txt" not in names, "file must be removed from the record"
 
 
 # ── delete.md ──────────────────────────────────────────────────────────────

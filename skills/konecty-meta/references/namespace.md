@@ -63,7 +63,7 @@ Singleton in `MetaObjects`: `_id: "Namespace"`, `type: "namespace"`.
 | `public`                      | string[]                              | Namespace fields exposed without authentication            |
 | `sessionExpirationInSeconds`  | number                                | Session timeout                                            |
 | `dateFormat`                  | string                                | Date format (Luxon)                                        |
-| `otpConfig`                   | OtpConfig                             | OTP delivery (expiration, WhatsApp, email template)        |
+| `otpConfig`                   | OtpConfig                             | OTP delivery for the Konecty **UI login** (expiration, WhatsApp, email template) — unrelated to MCP auth, which is OAuth-only |
 | `addressSource`               | `"DNE"` or `"Google"`                 | Address lookup provider                                    |
 | `mcpUserEnabled` / `mcpAdminEnabled` / `mcpRoleIds` / `mcpUserWriteEnabled` | see above | MCP gates |
 | `RocketChat` / `konfront` / `coldcall` / `facebookApp` / `googleApp` / `flows` | object | Integrations |
@@ -129,6 +129,9 @@ or array of URL templates). For per-document conditional integrations use
 `document.events` instead ([document.md](document.md)).
 
 ## otpConfig
+
+Configures OTP delivery for the Konecty **UI login** (not MCP auth — MCP access
+is OAuth-only, see [auth.md](auth.md)).
 
 ```json
 {

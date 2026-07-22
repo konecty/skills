@@ -51,7 +51,7 @@ E2E_COMPOSE     := docker compose -f e2e/docker-compose.yml
 E2E_URL         ?= http://localhost:3200
 E2E_PYTEST      := uv run --with pytest python -m
 KONECTY_REPO    ?= ../Konecty
-KONECTY_E2E_REF ?= feat/oauth-admin-scope-trusted-clients
+KONECTY_E2E_REF ?= feat/admin-mcp-meta-delete
 E2E_SRC         := e2e/.konecty-src
 
 e2e-src: ## Create/refresh the Konecty source worktree and build dist/ (docker build context)

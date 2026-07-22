@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "konecty-crm",
   "displayName": "Konecty CRM Skills",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "MCP-first skills that teach the agent to talk to your Konecty CRM: data (find/create/update/delete/files), metadata administration, conversational MCP setup, and integration development. After install, just tell Claude your Konecty URL — konecty-setup registers the per-company MCP server for you.",
   "author": {
     "name": "Konecty",

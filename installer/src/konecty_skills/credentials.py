@@ -1,44 +1,32 @@
-"""Interim admin-token store (T20, MCP-first).
+"""Local Konecty URL cache (T20, MCP-first; 0.3.0 dropped the legacy manual
+login / Bearer-header credential flow).
 
-Since the MCP-first refactor, ``~/.konecty/.env`` is no longer the general auth
-foundation — user auth is OAuth handled by Claude Code. This module only keeps
-the **interim admin token**: OTP over HTTP (request-otp → verify-otp) against
-the informed Konecty URL, stored as ``KONECTY_URL``/``KONECTY_TOKEN`` and used
-as the Bearer header of the ``konecty-admin`` MCP entry.
+Auth is OAuth end to end — both the user MCP and the admin MCP (trusted
+client, ADR-0011) — handled entirely by Claude Code. This module keeps no
+token of any kind; it only caches the company URL in ``~/.konecty/.env`` so
+``status``/``doctor`` can probe the deployment without asking again.
 """
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
-
-
-def _user_agent() -> str:
-    """CLI User-Agent (lazy import to avoid a module cycle with mcp_config)."""
-    from .mcp_config import USER_AGENT
-
-    return USER_AGENT
 
 DEFAULT_ENV_PATH: Path = Path.home() / ".konecty" / ".env"
 
 
 def current_env(path: Path = DEFAULT_ENV_PATH) -> dict:
-    """Parse the .env file and return url/token values.
+    """Parse the .env file and return the cached URL.
 
-    Returns a dict with keys "url" and "token"; each is None when missing.
+    Returns a dict with key "url" (None when missing).
     """
-    result: dict = {"url": None, "token": None}  # nosec B105 - dict of None defaults, not a secret
+    result: dict = {"url": None}
     try:
         with open(path, "r", encoding="utf-8") as fh:
             for line in fh:
                 stripped = line.strip()
                 if stripped.startswith("KONECTY_URL="):
                     result["url"] = stripped[len("KONECTY_URL="):] or None
-                elif stripped.startswith("KONECTY_TOKEN="):
-                    result["token"] = stripped[len("KONECTY_TOKEN="):] or None
     except FileNotFoundError:
         pass
     return result
@@ -69,89 +57,6 @@ def prompt_url(default: str | None = None) -> str:
         print("Invalid URL. Please enter a full http:// or https:// address.")
 
 
-# --- interim admin token: OTP over HTTP (T18, MCP-first) ---------------------
-
-def _post_json(url: str, payload: dict, timeout: int = 30) -> dict:
-    """POST *payload* as JSON to *url*; return the parsed JSON response.
-
-    Returns an empty dict on any network/HTTP/JSON failure (never raises).
-    """
-    scheme = urllib.parse.urlparse(url).scheme.lower()
-    if scheme not in ("http", "https"):
-        return {}
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": _user_agent(),
-            # /api/auth/* sits in Konecty's strict-CORS zone: requests without
-            # browser fetch metadata are rejected with 403 "Origin header
-            # required". Non-browser clients declare themselves with this.
-            "Sec-Fetch-Site": "none",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310  # nosec B310 - scheme guarded above
-            return json.load(resp)
-    except Exception:  # noqa: BLE001 - HTTPError, URLError, timeout, bad JSON
-        return {}
-
-
-def normalize_phone(identifier: str) -> str:
-    """Best-effort E.164 normalization mirroring the Konecty MCP session tools.
-
-    The server requires E.164 (``+5511999999999``). Brazilian users typically
-    type DDD+number (10-11 digits) — prepend ``+55``, as documented in
-    Konecty's mcp.md. Anything already starting with ``+`` passes through.
-    """
-    cleaned = identifier.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-    if cleaned.startswith("+"):
-        return cleaned
-    if cleaned.isdigit() and len(cleaned) in (10, 11):
-        return f"+55{cleaned}"
-    return cleaned
-
-
-def _identifier_payload(identifier: str) -> dict:
-    """Map an identifier to the Konecty OTP payload key (email vs phoneNumber)."""
-    if "@" in identifier:
-        return {"email": identifier}
-    return {"phoneNumber": normalize_phone(identifier)}
-
-
-def request_otp(url: str, identifier: str) -> bool:
-    """POST /api/auth/request-otp; True when the server accepted the request."""
-    endpoint = f"{url.rstrip('/')}/api/auth/request-otp"
-    result = _post_json(endpoint, _identifier_payload(identifier))
-    return bool(result.get("success"))
-
-
-def verify_otp(url: str, identifier: str, code: str) -> str | None:
-    """POST /api/auth/verify-otp; return the authId token or None on failure."""
-    endpoint = f"{url.rstrip('/')}/api/auth/verify-otp"
-    payload = _identifier_payload(identifier)
-    payload["otpCode"] = code.strip()
-    result = _post_json(endpoint, payload)
-    if result.get("success") and result.get("logged") and result.get("authId"):
-        return str(result["authId"])
-    return None
-
-
-def otp_login(url: str, identifier: str) -> str | None:
-    """Full interim-admin OTP flow: request → prompt for the code → verify.
-
-    Returns the ``authId`` token, or None on any failure (never raises).
-    """
-    if not request_otp(url, identifier):
-        return None
-    code = input("Enter the 6-digit OTP code: ").strip()
-    return verify_otp(url, identifier, code)
-
-
 def _merge_env(values: dict, path: Path) -> None:
     """Write/merge *values* (VAR → value) into the .env file.
 
@@ -176,11 +81,6 @@ def _merge_env(values: dict, path: Path) -> None:
     os.chmod(path, 0o600)
 
 
-def write_env(url: str, token: str, path: Path = DEFAULT_ENV_PATH) -> None:
-    """Write/merge KONECTY_URL and KONECTY_TOKEN (the interim admin token store)."""
-    _merge_env({"KONECTY_URL": url, "KONECTY_TOKEN": token}, path)
-
-
 def write_url_only(url: str, path: Path = DEFAULT_ENV_PATH) -> None:
-    """Write/merge KONECTY_URL into the .env file (token untouched)."""
+    """Write/merge KONECTY_URL into the .env file."""
     _merge_env({"KONECTY_URL": url}, path)

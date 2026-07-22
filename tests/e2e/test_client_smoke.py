@@ -16,13 +16,6 @@ pytestmark = requires_stack
 
 # docs/en/mcp.md — User MCP tool classification
 USER_TOOLS = {
-    # session
-    "session_login_options",
-    "session_request_otp_email",
-    "session_request_otp_phone",
-    "session_verify_otp_email",
-    "session_verify_otp_phone",
-    "session_logout",
     # modules + field helpers
     "modules_list",
     "modules_fields",
@@ -65,6 +58,7 @@ ADMIN_TOOLS = {
     "meta_hook_upsert",
     "meta_namespace_update",
     "meta_pivot_upsert",
+    "meta_delete",
     "meta_doctor_run",
     "meta_sync_plan",
     "meta_sync_apply",
