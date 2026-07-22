@@ -14,22 +14,18 @@ makes no HTTP calls.
 > `<company-url>/admin-mcp`) and a user with `admin: true`. If the `meta_*` tools are
 > not available, stop and guide the user through the **konecty-setup** skill.
 
-## Authentication (two paths)
+## Authentication
 
-- **Interim (today)**: the `konecty-admin` server entry is registered with an
-  `Authorization: Bearer <authTokenId>` header, where `authTokenId` comes from an
-  admin user's OTP login (obtained during setup). When it expires, re-run the setup
-  "fix auth" flow to get a new token and re-register the header.
-- **Target (OAuth)**: Konecty grants the `admin` OAuth scope to **trusted clients**
-  (provisioned via `OAUTH_CLIENTS_JSON`, ADR-0011) at consent — only for users with
-  `admin: true`, shown unchecked with a risk warning. Once your Konecty ships it,
-  **switching is a re-registration only** (`claude mcp remove` + `add` with
-  `--client-id`/`--callback-port`; see konecty-setup) — nothing in this skill changes.
+**OAuth via a trusted client only** (ADR-0011): Konecty grants the `admin` OAuth
+scope at consent to clients provisioned server-side with `OAUTH_CLIENTS_JSON`
+(e.g. `claude-code-admin`) — only for users with `admin: true`, shown unchecked
+with a risk warning that must be explicitly selected. See **konecty-setup** for
+registering the `konecty-admin` server with a trusted client.
 
-Either way, tools are called **without** any token argument — auth travels in the
-HTTP header. See [references/auth.md](references/auth.md).
+Tools are called **without** any token argument — auth travels in the HTTP
+header, resolved by the MCP host. See [references/auth.md](references/auth.md).
 
-## Tool inventory (admin MCP — 12 tools)
+## Tool inventory (admin MCP — 13 tools)
 
 | Tool | Input | Purpose |
 |------|-------|---------|
@@ -41,6 +37,7 @@ HTTP header. See [references/auth.md](references/auth.md).
 | `meta_pivot_upsert` | `id`, `pivot` | Create/update a pivot meta |
 | `meta_hook_validate` | `script` | Validate hook code **before** saving |
 | `meta_hook_upsert` | `id`, `hook` | Persist hook metadata (validate first!) |
+| `meta_delete` | `id`, `confirm` | Delete a meta object (dry-run without `confirm`; moves to trash) |
 | `meta_namespace_update` | `patch` | Patch the Namespace singleton (incl. MCP flags) |
 | `meta_doctor_run` | — | Run metadata integrity checks |
 | `meta_sync_plan` | `items` | Plan a repo↔database metadata sync |
@@ -60,7 +57,7 @@ HTTP header. See [references/auth.md](references/auth.md).
 | Namespace, SMTP, RabbitMQ, habilitar MCP, modo somente leitura / namespace config, MCP flags | [references/namespace.md](references/namespace.md) |
 | Validar integridade, auditoria de metadados / validate metadata | [references/doctor.md](references/doctor.md) |
 | Sincronizar metas, deploy de schema / sync metadata repo↔db | [references/sync.md](references/sync.md) |
-| Remover módulo meta, excluir documento meta / remove meta module | [references/remove.md](references/remove.md) — **MCP gap, read first** |
+| Remover módulo meta, excluir documento meta / remove meta module | [references/remove.md](references/remove.md) — **destructive, read first** |
 | Descobrir campos de dados / data-side field discovery | [references/field-discovery.md](references/field-discovery.md) |
 
 ## Guardrails (non-negotiable)
@@ -73,7 +70,10 @@ HTTP header. See [references/auth.md](references/auth.md).
    `require`/`import`, no comments in hook source ([hook.md](references/hook.md)).
 3. **Sync**: `meta_sync_plan` first; review with the user; only then
    `meta_sync_apply` with `autoApprove: true` — the tool refuses to apply without it.
-4. **Full-module removal has no MCP tool.** Never improvise REST calls — follow
+4. **Deletion is two-step.** `meta_delete` without `confirm` is a dry-run showing
+   the blast radius; only call with `confirm: true` after explicit user approval.
+   Deleted objects go to `MetaObjects.Trash` (ops-recoverable); the Namespace
+   object is undeletable. Full-module removal order and aftercare:
    [references/remove.md](references/remove.md).
 5. **`_id` conventions**: `Contact` (document), `Contact:list:Default`,
    `Contact:view:Default`, `Contact:access:Corretor`, `Contact:pivot:Default`,

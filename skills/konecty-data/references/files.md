@@ -22,15 +22,32 @@ in read-only namespaces (`mcpUserWriteEnabled=false`) they fail with
 If the file the user wants to send violates these constraints, say so before calling
 the tool.
 
-## `file_upload`
+## `file_upload` — two-step, single-use upload URL
 
-Input: `document`, `recordId`, `fieldName`, `file`. Output: `file`.
+Input: `document`, `recordId`, `fieldName`, `fileName`. Output: `uploadUrl`,
+`expiresAt`, `method`, `maxFileSize`.
 
-The upload associates the file to the record field immediately — no separate update
-step. Konecty stores files under a content-hash name: the response's file metadata
-shows the **stored name** (use it for download/delete) alongside the original name.
-Images are auto-resized/compressed and get a thumbnail; duplicate content in a list
-field is deduplicated.
+File **bytes never travel through the MCP**. The tool validates permissions and
+returns a **single-use upload URL** (short TTL, default 10 minutes) bound to that
+exact record field and file name. Send the bytes to it with an HTTP multipart
+POST — the tool response includes a ready-to-run `curl` example:
+
+```bash
+curl -X POST -F "file=@/path/to/contract.pdf" "<uploadUrl>"
+```
+
+Rules:
+
+1. Run the upload command **immediately** — the URL expires and is invalidated on
+   first use (a second POST returns HTTP 410).
+2. The stored file name comes from the `fileName` you passed to the tool, not from
+   the local file name in the multipart body.
+3. After uploading, verify with `records_find_by_id` that the record references the
+   file. Konecty stores files under a content-hash name: the upload response shows
+   the **stored name** (use it for download/delete) alongside the original name.
+   Images are auto-resized/compressed and get a thumbnail.
+4. Hosts without an HTTP client (chat-only, no shell) **cannot upload files** —
+   state the limitation instead of improvising.
 
 ## `file_download`
 
