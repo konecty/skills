@@ -30,12 +30,11 @@ import time
 
 import pytest
 
-from conftest import E2E_URL, mongo_eval, requires_stack
+from conftest import E2E_URL, requires_stack
 from mcp_client import McpToolError
 
 pytestmark = requires_stack
 
-ADMIN_EMAIL = "support@konecty.com"
 
 
 # ── setup validation ───────────────────────────────────────────────────────
@@ -52,38 +51,13 @@ def test_well_known_protected_resource_announces_mcp():
     assert "read" in body["scopes_supported"]
 
 
-# ── auth.md: OTP session flow ──────────────────────────────────────────────
+# ── auth.md: OAuth-only (ADR-0020) ─────────────────────────────────────────
 
 
-def _latest_otp_code() -> str:
-    return mongo_eval(
-        'print(db.getCollection("data.Message").find({"data.otpCode":{$exists:true}})'
-        ".sort({_createdAt:-1}).limit(1).toArray()[0].data.otpCode)"
-    ).splitlines()[-1].strip()
-
-
-def test_otp_session_flow_with_per_tool_token(user_mcp):
-    options = user_mcp.call("session_login_options")
-    assert options.structured.get("options"), "no OTP options advertised"
-
-    requested = user_mcp.call("session_request_otp_email", {"email": ADMIN_EMAIL})
-    assert requested.structured["otpRequest"]["success"] is True
-
-    code = _latest_otp_code()
-    verified = user_mcp.call("session_verify_otp_email", {"email": ADMIN_EMAIL, "otpCode": code})
-    auth_id = verified.structured["authId"]
-    assert verified.structured["logged"] is True
-    assert auth_id
-
-    # per-tool authTokenId argument (docs/en/mcp.md preferred transport)
-    from mcp_client import McpClient
-
-    anon = McpClient(f"{E2E_URL}/mcp", token=user_mcp.token)  # header for HTTP guard
-    listed = anon.call("modules_list", {"authTokenId": auth_id})
-    assert any(m["document"] == "Contact" for m in listed.structured["modules"])
-
-    logout = user_mcp.call("session_logout", {"authTokenId": auth_id})
-    assert logout.structured.get("logout") is not None
+def test_session_tools_are_gone(user_mcp):
+    """ADR-0020 removed the in-band session_* tools; the surface must not list them."""
+    tools = user_mcp.tool_names()
+    assert not {n for n in tools if n.startswith("session_")}, tools
 
 
 # ── field-discovery.md ─────────────────────────────────────────────────────
