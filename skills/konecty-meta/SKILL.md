@@ -79,3 +79,6 @@ HTTP header. See [references/auth.md](references/auth.md).
    `Contact:view:Default`, `Contact:access:Corretor`, `Contact:pivot:Default`,
    `Namespace` (singleton). The upsert `id` argument is this `_id`.
 6. After metadata changes, offer `meta_doctor_run` to check integrity.
+7. **Changing a field's `type` breaks its consumers' filters.** Before the upsert,
+   find who queries the field and migrate data first; to undo, roll back only
+   that field — see [document.md](references/document.md#changing-a-fields-type).
